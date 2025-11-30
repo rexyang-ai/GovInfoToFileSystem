@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="search-section">
+    <h2>数据采集控制台</h2>
+    <p class="text-muted">输入关键字启动智能爬虫，获取最新互联网数据</p>
+    <div class="search-box">
+        <input type="text" id="keyword" class="form-control" placeholder="请输入搜索关键字或需求..." style="font-size: 1.1rem;">
+        <button id="btn-search" class="btn">开始采集</button>
+    </div>
+</div>
+
+<div id="loading" class="loading">
+    <div class="spinner"></div>
+    <p>正在连接百度数据源进行深度采集，请稍候...</p>
+</div>
+
+<div id="results-section" style="display: none;">
+    <div class="action-bar">
+        <h3>采集结果预览 (<span id="result-count">0</span>)</h3>
+        <div>
+            <button id="btn-select-all" class="btn btn-sm" style="background-color: var(--secondary-color);">全选</button>
+            <button id="btn-save" class="btn btn-sm">批量保存到仓库</button>
+        </div>
+    </div>
+    
+    <div id="results-grid" class="results-grid">
+        <!-- Results injected here -->
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        let currentResults = [];
+
+        $('#btn-search').click(function() {
+            const keyword = $('#keyword').val().trim();
+            if (!keyword) {
+                alert('请输入关键字');
+                return;
+            }
+
+            $('#results-section').hide();
+            $('#loading').show();
+            $('#results-grid').empty();
+            currentResults = [];
+
+            $.ajax({
+                url: "{{ url_for('search') }}",
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ keyword: keyword }),
+                success: function(response) {
+                    $('#loading').hide();
+                    if (response.result && response.result.length > 0) {
+                        currentResults = response.result;
+                        $('#result-count').text(currentResults.length);
+                        $('#results-section').fadeIn();
+                        renderResults(currentResults);
+                    } else {
+                        alert('未找到相关数据');
+                    }
+                },
+                error: function(xhr) {
+                    $('#loading').hide();
+                    alert('采集失败: ' + (xhr.responseJSON?.error || '未知错误'));
+                }
+            });
+        });
+
+        function renderResults(results) {
+            const grid = $('#results-grid');
+            results.forEach((item, index) => {
+                const card = `
+                    <div class="result-card" data-index="${index}">
+                        <input type="checkbox" class="result-checkbox" checked>
+                        <img src="${item.cover_url || 'https://via.placeholder.com/400x200?text=No+Image'}" class="result-img" onerror="this.src='https://via.placeholder.com/400x200?text=Error'">
+                        <div class="result-content">
+                            <h3 class="result-title">
+                                <a href="${item.url}" target="_blank">${item.title}</a>
+                            </h3>
+                            <div class="result-summary">${item.summary || '暂无摘要'}</div>
+                            <div class="result-meta">
+                                <span class="text-muted">来源: 百度搜索</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                grid.append(card);
+            });
+        }
+
+        $('#btn-select-all').click(function() {
+            const checkboxes = $('.result-checkbox');
+            const allChecked = checkboxes.length === checkboxes.filter(':checked').length;
+            checkboxes.prop('checked', !allChecked);
+        });
+
+        $('#btn-save').click(function() {
+            const selectedIndices = [];
+            $('.result-checkbox:checked').each(function() {
+                selectedIndices.push($(this).closest('.result-card').data('index'));
+            });
+
+            if (selectedIndices.length === 0) {
+                alert('请至少选择一项数据');
+                return;
+            }
+
+            const selectedItems = selectedIndices.map(i => currentResults[i]);
+            const keyword = $('#keyword').val().trim();
+
+            $.ajax({
+                url: "{{ url_for('save_data') }}",
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ 
+                    items: selectedItems,
+                    keyword: keyword
+                }),
+                success: function(response) {
+                    alert(response.message);
+                    window.location.href = "{{ url_for('warehouse') }}";
+                },
+                error: function(xhr) {
+                    alert('保存失败: ' + (xhr.responseJSON?.error || '未知错误'));
+                }
+            });
+        });
+    });
+</script>
+{% endblock %}
