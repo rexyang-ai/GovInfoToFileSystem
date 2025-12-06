@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能瞭望数据分析处理系统</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
@@ -17,6 +18,10 @@
             <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">数据采集</a>
             <a href="{{ url_for('warehouse') }}" class="{% if request.endpoint == 'warehouse' %}active{% endif %}">数据仓库</a>
             <a href="{{ url_for('rules') }}" class="{% if request.endpoint == 'rules' %}active{% endif %}">规则库管理</a>
+            <a href="{{ url_for('content_details') }}" class="{% if request.endpoint == 'content_details' %}active{% endif %}">深采内容管理</a>
+            <a href="{{ url_for('ai_models_index') }}" class="{% if request.endpoint == 'ai_models_index' %}active{% endif %}">Ai模型引擎</a>
+            <a href="{{ url_for('ai_analysis') }}" class="{% if request.endpoint == 'ai_analysis' %}active{% endif %}">AI分析与报告</a>
+            <a href="{{ url_for('data_screen') }}" target="_blank" class="{% if request.endpoint == 'data_screen' %}active{% endif %}">数智大屏</a>
             <a href="{{ url_for('logout') }}">退出登录 ({{ username }})</a>
         </div>
         {% endif %}

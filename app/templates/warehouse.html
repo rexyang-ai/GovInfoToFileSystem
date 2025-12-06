@@ -16,14 +16,19 @@
                 <input type="date" name="date" class="form-control" value="{{ request.args.get('date', '') }}">
             </div>
             <button type="submit" class="btn">筛选</button>
-            <a href="{{ url_for('warehouse') }}" class="btn" style="background-color: var(--secondary-color);">重置</a>
+            <a href="{{ url_for('warehouse') }}" class="btn btn-secondary">重置</a>
         </form>
+    </div>
+
+    <div style="margin-bottom: 1rem;">
+        <button class="btn btn-success" onclick="startBatchCrawl()">批量深度采集</button>
     </div>
 
     <div class="table-container">
         <table>
             <thead>
                 <tr>
+                    <th style="width: 40px;"><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
                     <th style="width: 40px;">ID</th>
                     <th style="width: 120px;">采集时间</th>
                     <th style="width: 120px;">搜索词</th>
@@ -35,6 +40,7 @@
             <tbody>
                 {% for item in items %}
                 <tr>
+                    <td><input type="checkbox" class="item-checkbox" value="{{ item.id }}"></td>
                     <td>{{ item.id }}</td>
                     <td>{{ item.created_at }}</td>
                     <td>{{ item.search_keyword }}</td>
@@ -42,30 +48,53 @@
                         <a href="{{ item.url }}" target="_blank" style="color: var(--accent-color); text-decoration: none;">
                             {{ item.title }}
                         </a>
-                        <div style="font-size: 0.85rem; color: #666; margin-top: 4px; background: #f0f0f0; padding: 2px 6px; border-radius: 4px; display: inline-block;">
+                        <div class="badge badge-light" style="margin-top: 4px;">
                             {{ item.url | get_domain }}
                         </div>
                     </td>
                     <td style="font-size: 0.9rem; color: var(--secondary-color); text-align: center;">
                         {% if item.rule_name %}
-                        <span style="color: #28a745; font-weight: bold;">✔ {{ item.rule_name }}</span>
+                        <span class="text-success" style="font-weight: bold;">✔ {{ item.rule_name }}</span>
                         {% else %}
-                        <span style="color: #999;">暂无规则</span>
+                        <span class="text-muted">暂无规则</span>
                         {% endif %}
                     </td>
                     <td style="white-space: nowrap;">
                         <a href="{{ item.url }}" target="_blank" class="btn btn-sm">查看</a>
-                        <button class="btn btn-sm" style="background-color: #28a745; margin-left: 4px;" onclick="alert('采集功能待开发')">采集</button>
-                        <button class="btn btn-sm" style="background-color: #17a2b8; margin-left: 4px;" onclick="startSniff('{{ item.url }}')">嗅探</button>
+                        <button class="btn btn-sm btn-success" style="margin-left: 4px;" data-id="{{ item.id }}" onclick="startDeepCrawl(this.dataset.id)">采集</button>
+                        <button class="btn btn-sm btn-info" style="margin-left: 4px;" data-url="{{ item.url }}" onclick="startSniff(this.dataset.url)">嗅探</button>
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="6" class="text-center" style="padding: 2rem;">暂无数据</td>
+                    <td colspan="7" class="text-center" style="padding: 2rem;">暂无数据</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+</div>
+
+<div id="crawlModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <h3 style="margin-top: 0;">深度采集任务</h3>
+        
+        <div id="crawlProgress" style="padding: 20px 0;">
+            <div style="margin-bottom: 10px; display: flex; justify-content: space-between;">
+                <span id="progressText">正在初始化...</span>
+                <span id="progressCount">0/0</span>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); height: 10px; border-radius: 5px; overflow: hidden;">
+                <div id="progressBar" style="background: #28a745; height: 100%; width: 0%; transition: width 0.3s;"></div>
+            </div>
+        </div>
+        
+        <div id="crawlLogs" style="height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); color: var(--text-color); padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.9rem; font-family: monospace;">
+        </div>
+        
+        <div style="text-align: right; margin-top: 20px;">
+            <button class="btn" id="closeCrawlBtn" onclick="closeCrawlModal()" disabled>后台运行</button>
+        </div>
     </div>
 </div>
 
@@ -85,7 +114,7 @@
             </div>
             <div class="form-group">
                 <label>目标 URL</label>
-                <input type="text" id="ruleUrl" class="form-control" readonly style="background: #f5f5f5;">
+                <input type="text" id="ruleUrl" class="form-control" readonly>
             </div>
             <div class="form-group">
                 <label>标题 XPath</label>
@@ -101,55 +130,13 @@
             </div>
             
             <div style="text-align: right; margin-top: 20px;">
-                <button class="btn" style="background-color: #6c757d;" onclick="closeModal()">取消</button>
+                <button class="btn btn-secondary" onclick="closeModal()">取消</button>
                 <button class="btn" onclick="saveRule()">保存规则</button>
             </div>
         </div>
     </div>
 </div>
 
-<style>
-    .modal-overlay {
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        background: rgba(0,0,0,0.5);
-        z-index: 9999;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    .modal-content {
-        background: white;
-        padding: 25px;
-        border-radius: 8px;
-        width: 600px;
-        max-width: 90%;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    .form-group {
-        margin-bottom: 15px;
-    }
-    .form-group label {
-        display: block;
-        margin-bottom: 5px;
-        font-weight: bold;
-        font-size: 0.9rem;
-    }
-    .spinner {
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid var(--primary-color);
-        border-radius: 50%;
-        width: 30px;
-        height: 30px;
-        animation: spin 1s linear infinite;
-        margin: 0 auto 10px;
-    }
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-</style>
 {% endblock %}
 
 {% block scripts %}
@@ -226,6 +213,122 @@
         .catch(error => {
             alert('保存请求错误: ' + error);
         });
+    }
+
+    // --- Deep Crawl Logic ---
+    const crawlModal = document.getElementById('crawlModal');
+    const closeCrawlBtn = document.getElementById('closeCrawlBtn');
+    const logsDiv = document.getElementById('crawlLogs');
+    let pollInterval = null;
+    let currentTaskId = null;
+
+    function toggleSelectAll() {
+        const selectAll = document.getElementById('selectAll');
+        const checkboxes = document.querySelectorAll('.item-checkbox');
+        checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    }
+
+    function startDeepCrawl(id) {
+        startCrawl([id]);
+    }
+
+    function startBatchCrawl() {
+        const checkboxes = document.querySelectorAll('.item-checkbox:checked');
+        const ids = Array.from(checkboxes).map(cb => cb.value);
+        
+        if (ids.length === 0) {
+            alert('请至少选择一项进行采集');
+            return;
+        }
+        
+        startCrawl(ids);
+    }
+
+    function startCrawl(ids) {
+        if (!confirm(`确定要对选中的 ${ids.length} 条数据进行深度采集吗？`)) return;
+
+        // Reset UI
+        crawlModal.style.display = 'flex';
+        logsDiv.innerHTML = '';
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('progressText').innerText = '正在初始化...';
+        document.getElementById('progressCount').innerText = `0/${ids.length}`;
+        closeCrawlBtn.innerText = '后台运行';
+        closeCrawlBtn.disabled = false; // Allow backgrounding immediately if desired
+
+        fetch("{{ url_for('start_crawl') }}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ids: ids })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) {
+                alert('启动失败: ' + data.error);
+                crawlModal.style.display = 'none';
+            } else {
+                currentTaskId = data.task_id;
+                pollStatus();
+            }
+        })
+        .catch(err => {
+            alert('请求错误: ' + err);
+            crawlModal.style.display = 'none';
+        });
+    }
+
+    function pollStatus() {
+        if (!currentTaskId) return;
+
+        pollInterval = setInterval(() => {
+            fetch(`/crawl/status/${currentTaskId}`)
+                .then(res => res.json())
+                .then(task => {
+                    // Update Progress
+                    const percent = Math.floor((task.current / task.total) * 100);
+                    document.getElementById('progressBar').style.width = `${percent}%`;
+                    document.getElementById('progressCount').innerText = `${task.current}/${task.total}`;
+                    document.getElementById('progressText').innerText = `正在采集... (成功: ${task.success}, 失败: ${task.failed})`;
+
+                    // Update Logs
+                    if (task.logs && task.logs.length > 0) {
+                        // Append new logs only? Or just replace for simplicity
+                        // Let's replace for now, but optimize if list is huge
+                        logsDiv.innerHTML = task.logs.map(log => `<div>${log}</div>`).join('');
+                        logsDiv.scrollTop = logsDiv.scrollHeight;
+                    }
+
+                    if (task.status === 'completed' || task.status === 'error') {
+                        clearInterval(pollInterval);
+                        document.getElementById('progressText').innerText = task.status === 'completed' ? '采集任务完成' : '采集任务异常';
+                        closeCrawlBtn.innerText = '关闭';
+                        closeCrawlBtn.disabled = false;
+                        
+                        // Show summary report
+                        const summary = `
+                            <div style="margin-top: 20px; padding: 10px; background: #e9ecef; border-left: 5px solid #007bff;">
+                                <strong>任务简报</strong><br>
+                                总数: ${task.total}<br>
+                                成功: ${task.success}<br>
+                                失败: ${task.failed}
+                            </div>
+                        `;
+                        logsDiv.innerHTML += summary;
+                        logsDiv.scrollTop = logsDiv.scrollHeight;
+                    }
+                })
+                .catch(err => {
+                    console.error('Poll error:', err);
+                });
+        }, 1000);
+    }
+
+    function closeCrawlModal() {
+        crawlModal.style.display = 'none';
+        if (pollInterval) clearInterval(pollInterval);
+        // If task is still running, it continues in background (server-side)
+        // But UI stops polling.
+        // Reload page to refresh statuses? No, statuses are not visible in list yet.
     }
 </script>
 {% endblock %}

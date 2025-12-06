@@ -31,9 +31,9 @@
                     <td style="word-break: break-all;">{{ rule.url_pattern }}</td>
                     <td>{{ rule.created_at }}</td>
                     <td>
-                        <button class="btn btn-sm" style="background-color: #17a2b8;" onclick="editRule('{{ rule.id }}')">编辑</button>
-                        <button class="btn btn-sm" style="background-color: #ffc107; color: #000;" onclick="copyRule('{{ rule.id }}')">复制</button>
-                        <button class="btn btn-sm" style="background-color: #dc3545;" onclick="deleteRule('{{ rule.id }}')">删除</button>
+                        <button class="btn btn-sm btn-info" onclick="editRule('{{ rule.id }}')">编辑</button>
+                        <button class="btn btn-sm btn-warning" onclick="copyRule('{{ rule.id }}')">复制</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteRule('{{ rule.id }}')">删除</button>
                     </td>
                 </tr>
                 {% else %}
@@ -54,12 +54,12 @@
         <input type="hidden" id="ruleId">
         
         <div class="form-group">
-            <label>规则名称 <span style="color: red;">*</span></label>
+            <label>规则名称 <span class="text-danger">*</span></label>
             <input type="text" id="ruleName" class="form-control" placeholder="例如：某某政府网新闻列表">
         </div>
         
         <div class="form-group">
-            <label>URL 示例/模式 <span style="color: red;">*</span></label>
+            <label>URL 示例/模式 <span class="text-danger">*</span></label>
             <input type="text" id="urlPattern" class="form-control" placeholder="https://example.com/news/...">
             <small class="text-muted">系统将自动从 URL 中提取域名</small>
         </div>
@@ -81,7 +81,7 @@
         </div>
         
         <div style="text-align: right; margin-top: 20px;">
-            <button class="btn" style="background-color: #6c757d;" onclick="closeModal()">取消</button>
+            <button class="btn btn-secondary" onclick="closeModal()">取消</button>
             <button class="btn" onclick="saveRule()">保存</button>
         </div>
     </div>

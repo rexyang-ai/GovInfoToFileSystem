@@ -48,6 +48,46 @@ def init_db():
         )
     ''')
     
+    # Create ContentDetails table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS content_details (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_url TEXT UNIQUE,
+            title TEXT,
+            content TEXT,
+            html_content TEXT,
+            rule_id INTEGER,
+            crawled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(rule_id) REFERENCES crawling_rules(id)
+        )
+    ''')
+    
+    # Create AI Models table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS ai_models (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            provider TEXT,
+            api_base TEXT,
+            api_key TEXT,
+            model_name TEXT,
+            is_active BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Create Token Consumption table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS token_consumption (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_id INTEGER,
+            tokens_used INTEGER,
+            request_type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(model_id) REFERENCES ai_models(id)
+        )
+    ''')
+    
     # Check if admin exists
     c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
     if not c.fetchone():

@@ -89,14 +89,15 @@ body {
     margin-bottom: 1.5rem;
 }
 
-.form-label {
+.form-label, label {
     display: block;
     margin-bottom: 0.5rem;
     color: var(--secondary-color);
     font-size: 0.9rem;
+    font-weight: bold;
 }
 
-.form-control {
+.form-control, textarea, select {
     width: 100%;
     padding: 0.75rem;
     border-radius: 6px;
@@ -105,11 +106,23 @@ body {
     color: var(--text-color);
     box-sizing: border-box;
     transition: border-color 0.3s;
+    font-family: inherit;
 }
 
-.form-control:focus {
+.form-control:focus, textarea:focus, select:focus {
     outline: none;
     border-color: var(--accent-color);
+}
+
+.form-control:disabled, .form-control[readonly] {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--secondary-color);
+    cursor: not-allowed;
+}
+
+::placeholder {
+    color: #475569;
+    opacity: 1;
 }
 
 .btn {
@@ -140,6 +153,55 @@ body {
 .btn-sm {
     padding: 0.4rem 0.8rem;
     font-size: 0.85rem;
+}
+
+.btn-success {
+    background-color: var(--success-color);
+}
+.btn-success:hover {
+    background-color: #059669;
+}
+
+.btn-info {
+    background-color: #0ea5e9;
+    color: white;
+}
+.btn-info:hover {
+    background-color: #0284c7;
+}
+
+.btn-warning {
+    background-color: #f59e0b;
+    color: black;
+}
+
+.btn-danger {
+    background-color: #ef4444;
+}
+.btn-danger:hover {
+    background-color: #dc2626;
+}
+
+.badge {
+    font-size: 0.85rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.badge-light {
+    background-color: rgba(255,255,255,0.1);
+    color: var(--secondary-color);
+}
+
+.text-success { color: var(--success-color); }
+.text-danger { color: #ef4444; }
+
+.btn-secondary {
+    background-color: #6c757d;
+}
+.btn-secondary:hover {
+    background-color: #5a6268;
 }
 
 /* Dashboard */
@@ -274,6 +336,7 @@ th, td {
     padding: 1rem;
     text-align: left;
     border-bottom: 1px solid var(--border-color);
+    color: var(--text-color);
 }
 
 th {
@@ -308,10 +371,10 @@ tr:hover {
 
 .spinner {
     border: 4px solid rgba(255, 255, 255, 0.1);
+    border-top: 4px solid var(--primary-color, var(--accent-color));
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    border-left-color: var(--accent-color);
     animation: spin 1s linear infinite;
     margin: 0 auto 1rem;
 }
@@ -319,6 +382,38 @@ tr:hover {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+/* Modal Styles - Global */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7);
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(2px);
+}
+
+.modal-content {
+    background: var(--card-bg);
+    color: var(--text-color);
+    padding: 25px;
+    border-radius: 8px;
+    width: 600px;
+    max-width: 90%;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    border: 1px solid var(--border-color);
+}
+
+.modal-content h3 {
+    margin-top: 0;
+    color: var(--accent-color);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
 }
 
 /* Utilities */

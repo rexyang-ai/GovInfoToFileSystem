@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI驱动数智大屏</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/screen.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/libs/echarts/package/dist/echarts.min.js') }}"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body class="screen-mode">
+    <div class="screen-container">
+        <!-- Header -->
+        <div class="screen-header">
+            <div class="screen-title">AI驱动数智大屏系统</div>
+            <div class="screen-time" id="currentTime"></div>
+        </div>
+
+        <!-- Content -->
+        <div class="screen-content">
+            <!-- Left Column -->
+            <div class="screen-card area-left-top">
+                <div class="card-title"><i class="fas fa-chart-pie"></i> 数据分类统计</div>
+                <div class="card-body" id="chart-classification"></div>
+            </div>
+
+            <div class="screen-card area-left-bottom">
+                <div class="card-title"><i class="fas fa-exclamation-triangle"></i> 风险关键字监测</div>
+                <div class="card-body" id="chart-risk"></div>
+            </div>
+
+            <!-- Center Column -->
+            <div class="area-center">
+                <div class="stats-bar">
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-total">0</div>
+                        <div class="stat-label">总数据量</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-today">0</div>
+                        <div class="stat-label">今日采集</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-risk">0</div>
+                        <div class="stat-label">风险预警</div>
+                    </div>
+                </div>
+                <div class="map-container" id="chart-map"></div>
+            </div>
+
+            <!-- Right Column -->
+            <div class="screen-card area-right-top">
+                <div class="card-title"><i class="fas fa-chart-line"></i> 关键字热度趋势</div>
+                <div class="card-body" id="chart-trend"></div>
+            </div>
+
+            <div class="screen-card area-right-bottom">
+                <div class="card-title"><i class="fas fa-list"></i> 最新采集数据</div>
+                <div class="card-body">
+                    <div class="scrolling-list">
+                        <table class="screen-table" id="table-latest">
+                            <thead>
+                                <tr>
+                                    <th width="60%">标题</th>
+                                    <th width="20%">来源</th>
+                                    <th width="20%">时间</th>
+                                </tr>
+                            </thead>
+                            <tbody id="latest-data-body">
+                                <!-- Data injected by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Update Time
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('currentTime').innerText = now.toLocaleString('zh-CN', { hour12: false });
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        // Init Charts
+        const chartClass = echarts.init(document.getElementById('chart-classification'));
+        const chartRisk = echarts.init(document.getElementById('chart-risk'));
+        const chartMap = echarts.init(document.getElementById('chart-map'));
+        const chartTrend = echarts.init(document.getElementById('chart-trend'));
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            chartClass.resize();
+            chartRisk.resize();
+            chartMap.resize();
+            chartTrend.resize();
+        });
+
+        // Load Map Data
+        // Using a public CDN for China Map GeoJSON
+        $.getJSON('https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json', function(geoJson) {
+            echarts.registerMap('china', geoJson);
+            initMap();
+        });
+
+        function initMap() {
+            const option = {
+                tooltip: {
+                    trigger: 'item',
+                    formatter: '{b}: {c}'
+                },
+                visualMap: {
+                    min: 0,
+                    max: 100,
+                    left: 'left',
+                    top: 'bottom',
+                    text: ['高', '低'],
+                    calculable: true,
+                    inRange: {
+                        color: ['#003366', '#006699', '#4cabce', '#e5323e']
+                    },
+                    textStyle: { color: '#fff' }
+                },
+                geo: {
+                    map: 'china',
+                    roam: true,
+                    label: {
+                        emphasis: { show: false }
+                    },
+                    itemStyle: {
+                        normal: {
+                            areaColor: '#323c48',
+                            borderColor: '#111'
+                        },
+                        emphasis: {
+                            areaColor: '#2a333d'
+                        }
+                    }
+                },
+                series: [
+                    {
+                        name: '热度',
+                        type: 'heatmap',
+                        coordinateSystem: 'geo',
+                        data: [] // To be filled
+                    }
+                ]
+            };
+            chartMap.setOption(option);
+            loadMapData();
+        }
+
+        // Data Loading Functions
+        function loadStats() {
+            $.get('/api/screen/stats', function(data) {
+                // Update numbers
+                $('#stat-total').text(data.total_count);
+                $('#stat-today').text(data.today_count);
+                $('#stat-risk').text(data.risk_count);
+
+                // Update Classification Chart (Pie)
+                const classOption = {
+                    tooltip: { trigger: 'item' },
+                    legend: { top: '5%', left: 'center', textStyle: { color: '#fff' } },
+                    series: [{
+                        name: '数据分类',
+                        type: 'pie',
+                        radius: ['40%', '70%'],
+                        avoidLabelOverlap: false,
+                        itemStyle: {
+                            borderRadius: 10,
+                            borderColor: '#fff',
+                            borderWidth: 2
+                        },
+                        label: { show: false, position: 'center' },
+                        emphasis: {
+                            label: { show: true, fontSize: '20', fontWeight: 'bold', color: '#fff' }
+                        },
+                        data: data.classification
+                    }]
+                };
+                chartClass.setOption(classOption);
+            });
+        }
+
+        function loadRiskData() {
+            $.get('/api/screen/risks', function(data) {
+                const riskOption = {
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                    xAxis: {
+                        type: 'value',
+                        axisLabel: { color: '#fff' },
+                        splitLine: { show: false }
+                    },
+                    yAxis: {
+                        type: 'category',
+                        data: data.keywords,
+                        axisLabel: { color: '#fff' }
+                    },
+                    series: [{
+                        name: '触发次数',
+                        type: 'bar',
+                        data: data.counts,
+                        itemStyle: { color: '#ff4d4f' }
+                    }]
+                };
+                chartRisk.setOption(riskOption);
+            });
+        }
+
+        function loadTrendData() {
+            $.get('/api/screen/keywords', function(data) {
+                const trendOption = {
+                    tooltip: { trigger: 'axis' },
+                    legend: { data: data.series.map(s => s.name), textStyle: { color: '#fff' } },
+                    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                    xAxis: {
+                        type: 'category',
+                        boundaryGap: false,
+                        data: data.dates,
+                        axisLabel: { color: '#fff' }
+                    },
+                    yAxis: {
+                        type: 'value',
+                        axisLabel: { color: '#fff' },
+                        splitLine: { show: true, lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+                    },
+                    series: data.series.map(s => ({
+                        ...s,
+                        type: 'line',
+                        smooth: true,
+                        areaStyle: { opacity: 0.1 }
+                    }))
+                };
+                chartTrend.setOption(trendOption);
+            });
+        }
+
+        function loadLatestData() {
+            $.get('/api/screen/latest', function(data) {
+                const tbody = $('#latest-data-body');
+                tbody.empty();
+                // Duplicate data for seamless scrolling if needed, or just list
+                const items = data.data;
+                // If using pure CSS animation, we might need to double the list
+                const content = items.concat(items).map(item => `
+                    <tr>
+                        <td title="${item.title}">${item.title}</td>
+                        <td>${item.source || '未知'}</td>
+                        <td>${item.date}</td>
+                    </tr>
+                `).join('');
+                tbody.html(content);
+            });
+        }
+        
+        // City Coordinates (Simplified for major cities)
+        const cityCoords = {
+            '北京': [116.407526, 39.90403],
+            '上海': [121.473701, 31.230416],
+            '广州': [113.264434, 23.129162],
+            '深圳': [114.085947, 22.547],
+            '成都': [104.066541, 30.572269],
+            '杭州': [120.15507, 30.274084],
+            '武汉': [114.305393, 30.593099],
+            '西安': [108.93977, 34.341574],
+            '重庆': [106.551556, 29.563009],
+            '南京': [118.796877, 32.060255],
+            '天津': [117.200983, 39.084158],
+            '郑州': [113.625368, 34.7466],
+            '长沙': [112.938814, 28.228209],
+            '沈阳': [123.431474, 41.805698],
+            '青岛': [120.38263, 36.067108],
+            '济南': [117.1205, 36.6511],
+            '大连': [121.6147, 38.9140],
+            '厦门': [118.0894, 24.4798],
+            '宁波': [121.5503, 29.8743],
+            '哈尔滨': [126.5350, 45.8038],
+            '长春': [125.3235, 43.8170],
+            '石家庄': [114.5149, 38.0428],
+            '合肥': [117.2272, 31.8206],
+            '福州': [119.2965, 26.0745],
+            '南昌': [115.8546, 28.6830],
+            '昆明': [102.8329, 24.8801],
+            '贵阳': [106.6302, 26.6477],
+            '兰州': [103.8343, 36.0611],
+            '南宁': [108.3661, 22.8172],
+            '海口': [110.1983, 20.0440],
+            '太原': [112.5489, 37.8706],
+            '呼和浩特': [111.7492, 40.8425],
+            '乌鲁木齐': [87.6168, 43.8256],
+            '拉萨': [91.1409, 29.6456],
+            '西宁': [101.7782, 36.6232],
+            '银川': [106.2309, 38.4872]
+        };
+
+        function loadMapData() {
+            $.get('/api/screen/heatmap', function(data) {
+                // Prepare heatmap data
+                // ECharts heatmap needs [lng, lat, value]
+                const heatData = [];
+                data.forEach(item => {
+                    if (cityCoords[item.name]) {
+                        heatData.push(cityCoords[item.name].concat(item.value));
+                    }
+                });
+                
+                chartMap.setOption({
+                    series: [{
+                        type: 'heatmap',
+                        coordinateSystem: 'geo',
+                        data: heatData,
+                        pointSize: 10,
+                        blurSize: 15
+                    }]
+                });
+            });
+        }
+
+        // Initial Load
+        loadStats();
+        loadRiskData();
+        loadTrendData();
+        loadLatestData();
+
+        // Refresh Interval
+        setInterval(() => {
+            loadStats();
+            loadRiskData();
+            loadTrendData();
+            loadLatestData();
+            loadMapData();
+        }, 30000);
+
+    </script>
+</body>
+</html>
