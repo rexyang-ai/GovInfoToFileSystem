@@ -16,6 +16,7 @@
         <div class="navbar-menu">
             <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">数据采集</a>
             <a href="{{ url_for('warehouse') }}" class="{% if request.endpoint == 'warehouse' %}active{% endif %}">数据仓库</a>
+            <a href="{{ url_for('rules') }}" class="{% if request.endpoint == 'rules' %}active{% endif %}">规则库管理</a>
             <a href="{{ url_for('logout') }}">退出登录 ({{ username }})</a>
         </div>
         {% endif %}

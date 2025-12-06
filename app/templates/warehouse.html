@@ -24,12 +24,12 @@
         <table>
             <thead>
                 <tr>
-                    <th style="width: 50px;">ID</th>
-                    <th style="width: 150px;">采集时间</th>
+                    <th style="width: 40px;">ID</th>
+                    <th style="width: 120px;">采集时间</th>
                     <th style="width: 120px;">搜索词</th>
                     <th style="width: 250px;">标题</th>
-                    <th>摘要</th>
-                    <th style="width: 80px;">操作</th>
+                    <th style="width: 150px;">采集和嗅探规则</th>
+                    <th style="width: 200px;">操作</th>
                 </tr>
             </thead>
             <tbody>
@@ -42,12 +42,21 @@
                         <a href="{{ item.url }}" target="_blank" style="color: var(--accent-color); text-decoration: none;">
                             {{ item.title }}
                         </a>
+                        <div style="font-size: 0.85rem; color: #666; margin-top: 4px; background: #f0f0f0; padding: 2px 6px; border-radius: 4px; display: inline-block;">
+                            {{ item.url | get_domain }}
+                        </div>
                     </td>
-                    <td style="font-size: 0.9rem; color: var(--secondary-color);">
-                        {{ item.summary[:100] }}{% if item.summary|length > 100 %}...{% endif %}
+                    <td style="font-size: 0.9rem; color: var(--secondary-color); text-align: center;">
+                        {% if item.rule_name %}
+                        <span style="color: #28a745; font-weight: bold;">✔ {{ item.rule_name }}</span>
+                        {% else %}
+                        <span style="color: #999;">暂无规则</span>
+                        {% endif %}
                     </td>
-                    <td>
+                    <td style="white-space: nowrap;">
                         <a href="{{ item.url }}" target="_blank" class="btn btn-sm">查看</a>
+                        <button class="btn btn-sm" style="background-color: #28a745; margin-left: 4px;" onclick="alert('采集功能待开发')">采集</button>
+                        <button class="btn btn-sm" style="background-color: #17a2b8; margin-left: 4px;" onclick="startSniff('{{ item.url }}')">嗅探</button>
                     </td>
                 </tr>
                 {% else %}
@@ -59,4 +68,165 @@
         </table>
     </div>
 </div>
+
+<div id="sniffModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <h3 id="modalTitle" style="margin-top: 0;">嗅探规则</h3>
+        
+        <div id="sniffLoading" style="text-align: center; padding: 20px;">
+            <div class="spinner"></div>
+            <p>正在智能分析页面结构，请稍候...</p>
+        </div>
+        
+        <div id="sniffForm" style="display: none;">
+            <div class="form-group">
+                <label>规则名称</label>
+                <input type="text" id="ruleName" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>目标 URL</label>
+                <input type="text" id="ruleUrl" class="form-control" readonly style="background: #f5f5f5;">
+            </div>
+            <div class="form-group">
+                <label>标题 XPath</label>
+                <input type="text" id="titleXpath" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>正文 XPath</label>
+                <input type="text" id="contentXpath" class="form-control">
+            </div>
+            <div class="form-group">
+                <label>请求头 (JSON)</label>
+                <textarea id="reqHeaders" class="form-control" rows="3"></textarea>
+            </div>
+            
+            <div style="text-align: right; margin-top: 20px;">
+                <button class="btn" style="background-color: #6c757d;" onclick="closeModal()">取消</button>
+                <button class="btn" onclick="saveRule()">保存规则</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 9999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    .modal-content {
+        background: white;
+        padding: 25px;
+        border-radius: 8px;
+        width: 600px;
+        max-width: 90%;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .form-group {
+        margin-bottom: 15px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        font-size: 0.9rem;
+    }
+    .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid var(--primary-color);
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 10px;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
 {% endblock %}
+
+{% block scripts %}
+<script>
+    const modal = document.getElementById('sniffModal');
+    const loadingDiv = document.getElementById('sniffLoading');
+    const formDiv = document.getElementById('sniffForm');
+    
+    function closeModal() {
+        modal.style.display = 'none';
+    }
+    
+    function startSniff(url) {
+        // Reset UI
+        modal.style.display = 'flex';
+        loadingDiv.style.display = 'block';
+        formDiv.style.display = 'none';
+        document.getElementById('modalTitle').innerText = '正在嗅探...';
+        
+        fetch("{{ url_for('sniff') }}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url: url })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('嗅探失败: ' + data.error);
+                closeModal();
+            } else {
+                // Show Form
+                loadingDiv.style.display = 'none';
+                formDiv.style.display = 'block';
+                document.getElementById('modalTitle').innerText = '确认采集规则';
+                
+                // Fill data
+                document.getElementById('ruleUrl').value = url;
+                document.getElementById('ruleName').value = data.data.rule_name;
+                document.getElementById('titleXpath').value = data.data.title_xpath;
+                document.getElementById('contentXpath').value = data.data.content_xpath;
+                document.getElementById('reqHeaders').value = data.data.request_headers;
+            }
+        })
+        .catch(error => {
+            alert('请求错误: ' + error);
+            closeModal();
+        });
+    }
+    
+    function saveRule() {
+        const payload = {
+            url: document.getElementById('ruleUrl').value,
+            rule_name: document.getElementById('ruleName').value,
+            title_xpath: document.getElementById('titleXpath').value,
+            content_xpath: document.getElementById('contentXpath').value,
+            request_headers: document.getElementById('reqHeaders').value
+        };
+        
+        fetch("{{ url_for('save_rule') }}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('保存失败: ' + data.error);
+            } else {
+                alert(data.message);
+                closeModal();
+                location.reload();
+            }
+        })
+        .catch(error => {
+            alert('保存请求错误: ' + error);
+        });
+    }
+</script>
+{% endblock %}
+

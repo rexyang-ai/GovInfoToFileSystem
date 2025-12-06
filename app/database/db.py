@@ -34,6 +34,20 @@ def init_db():
         )
     ''')
     
+    # Create CrawlingRules table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS crawling_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_name TEXT,
+            domain TEXT,
+            url_pattern TEXT,
+            title_xpath TEXT,
+            content_xpath TEXT,
+            request_headers TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     # Check if admin exists
     c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
     if not c.fetchone():
