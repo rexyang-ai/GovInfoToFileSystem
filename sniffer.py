@@ -92,13 +92,22 @@ def find_best_title(tree):
 
     return "/html/head/title"
 
-def sniff_page(url):
+def sniff_page(url, custom_headers=None):
     """
     Fetches the page and attempts to guess the title and content XPaths.
     """
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
     }
+    
+    # Merge custom headers if provided
+    if custom_headers:
+        try:
+            if isinstance(custom_headers, str):
+                custom_headers = json.loads(custom_headers)
+            headers.update(custom_headers)
+        except:
+            pass
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -116,21 +125,61 @@ def sniff_page(url):
         content_xpath = ""
         
         # Candidate tags for content container
-        candidates = tree.xpath('//article | //div | //section | //td')
+        candidates = tree.xpath('//article | //div | //section | //td | //main')
         best_candidate = None
         max_score = 0
         
+        doc_text_len = len(clean_text(tree.text_content()))
+        
         for candidate in candidates:
+            # Skip hidden elements or scripts
+            if candidate.tag in ['script', 'style', 'noscript']:
+                continue
+                
             # Score based on text length of p children
             ps = candidate.xpath('.//p')
-            if not ps:
+            # Also consider direct text if it's substantial
+            direct_text = clean_text(candidate.text)
+            
+            p_text_len = sum(len(clean_text(p.text_content())) for p in ps)
+            total_text_len = p_text_len + len(direct_text)
+            
+            if total_text_len < 20: # Too short
                 continue
             
-            text_len = sum(len(clean_text(p.text_content())) for p in ps)
+            # Link density check
+            links = candidate.xpath('.//a')
+            link_text_len = sum(len(clean_text(a.text_content())) for a in links)
             
+            if total_text_len > 0:
+                link_density = link_text_len / total_text_len
+            else:
+                link_density = 0
+                
+            # Penalize high link density (navigation, sidebars, footers)
+            if link_density > 0.5:
+                continue
+                
             # Simple heuristic: text length
-            score = text_len
+            score = total_text_len
             
+            # Boost score for semantic tags or likely class names
+            classes = candidate.get('class', '').lower()
+            ids = candidate.get('id', '').lower()
+            
+            if candidate.tag == 'article':
+                score *= 1.5
+            if 'content' in classes or 'article' in classes or 'post' in classes or 'detail' in classes:
+                score *= 1.2
+            if 'content' in ids or 'article' in ids or 'post' in ids or 'detail' in ids:
+                score *= 1.2
+            
+            # Penalize unlikely candidates
+            if 'footer' in classes or 'header' in classes or 'nav' in classes or 'menu' in classes or 'sidebar' in classes:
+                score *= 0.1
+            if 'footer' in ids or 'header' in ids or 'nav' in ids or 'menu' in ids or 'sidebar' in ids:
+                score *= 0.1
+                
             if score > max_score:
                 max_score = score
                 best_candidate = candidate
@@ -143,7 +192,8 @@ def sniff_page(url):
         return {
             "title_xpath": title_xpath,
             "content_xpath": content_xpath,
-            "request_headers": json.dumps(headers)
+            "request_headers": json.dumps(headers),
+            "final_url": response.url
         }, None
         
     except Exception as e:

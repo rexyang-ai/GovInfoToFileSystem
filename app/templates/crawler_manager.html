@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>爬虫源管理</h2>
+        <button class="btn btn-primary" id="btn-add-source">新增爬虫源</button>
+    </div>
+
+    <div class="filter-bar">
+        <div class="filter-group">
+            <input type="text" id="search-input" class="form-control" placeholder="搜索爬虫源名称或URL...">
+        </div>
+        <button class="btn" onclick="searchSources()">搜索</button>
+    </div>
+
+    <div class="table-container">
+        <table class="table" id="sources-table">
+            <thead>
+                <tr>
+                    <th style="width: 60px;">ID</th>
+                    <th>名称</th>
+                    <th>URL模板</th>
+                    <th style="width: 100px;">状态</th>
+                    <th style="width: 150px;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Rows will be populated by JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <div id="pagination-container" class="pagination"></div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div id="sourceModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle" style="margin: 0;">新增爬虫源</h3>
+            <span class="close-modal-btn">&times;</span>
+        </div>
+        
+        <form id="sourceForm">
+            <input type="hidden" id="sourceId">
+            
+            <div class="form-group">
+                <label for="sourceName">名称</label>
+                <input type="text" id="sourceName" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="sourceUrl">URL (使用 {keyword} 作为占位符)</label>
+                <input type="text" id="sourceUrl" class="form-control" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="sourceHeaders">请求头 (支持原生文本或JSON格式 - 自动转换为JSON)</label>
+                <textarea id="sourceHeaders" class="form-control" rows="6" placeholder='示例1 (原生文本):
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7
+
+示例2 (JSON格式):
+{"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"}'></textarea>
+                <small class="form-text text-muted">支持从浏览器开发者工具复制的原生文本格式，程序将自动转换为JSON数据存储。</small>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="listSelector">列表选择器 (XPath)</label>
+                        <input type="text" id="listSelector" class="form-control" placeholder="//div[@class='result']">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="titleSelector">标题选择器 (XPath, 相对路径)</label>
+                        <input type="text" id="titleSelector" class="form-control" placeholder=".//h3/a">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="linkSelector">链接选择器 (XPath, 相对路径)</label>
+                        <input type="text" id="linkSelector" class="form-control" placeholder=".//h3/a/@href">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="dateSelector">日期选择器 (XPath, 相对路径)</label>
+                        <input type="text" id="dateSelector" class="form-control" placeholder=".//span[@class='date']">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="form-group">
+                        <label for="coverSelector">封面图片选择器 (XPath, 相对路径, 可选)</label>
+                        <input type="text" id="coverSelector" class="form-control" placeholder=".//img/@src">
+                        <small class="form-text text-muted">如果不填写，程序将自动尝试获取列表项中的第一张图片作为封面。</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="paginationParam">分页参数名 (可选)</label>
+                        <input type="text" id="paginationParam" class="form-control" placeholder="例如: pn, page">
+                        <small class="form-text text-muted">URL中的分页参数名</small>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="paginationStep">分页步长</label>
+                        <input type="number" id="paginationStep" class="form-control" value="0">
+                        <small class="form-text text-muted">每页增加的数值 (例如百度为10)</small>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="startValue">起始值</label>
+                        <input type="number" id="startValue" class="form-control" value="0">
+                        <small class="form-text text-muted">第一页的值 (通常为0或1)</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label class="checkbox-inline">
+                    <input type="checkbox" id="sourceEnabled" checked> 启用
+                </label>
+            </div>
+            
+            <div class="text-right mt-4">
+                <button type="button" class="btn btn-secondary close-modal">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        loadSources();
+
+        // Trigger search on Enter
+        $('#search-input').keypress(function(e) {
+            if(e.which == 13) searchSources();
+        });
+    });
+
+    let currentPage = 1;
+
+    function searchSources() {
+        loadSources(1);
+    }
+
+    function loadSources(page = 1) {
+        currentPage = page;
+        const keyword = $('#search-input').val();
+
+        $.get(`{{ url_for('api_list_sources_full') }}?page=${page}&keyword=${keyword}`, function(response) {
+            const tbody = $('#sources-table tbody');
+            tbody.empty();
+            
+            if (response.items.length === 0) {
+                tbody.append('<tr><td colspan="5" class="text-center" style="padding: 2rem;">暂无数据</td></tr>');
+            } else {
+                response.items.forEach(source => {
+                    const tr = `
+                        <tr>
+                            <td>${source.id}</td>
+                            <td>${source.name}</td>
+                            <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${source.url}</td>
+                            <td>
+                                <span class="badge ${source.is_enabled ? 'badge-success' : 'badge-light'}">
+                                    ${source.is_enabled ? '启用' : '禁用'}
+                                </span>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-info btn-edit" data-id="${source.id}">编辑</button>
+                                <button class="btn btn-sm btn-danger btn-delete" data-id="${source.id}">删除</button>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.append(tr);
+                });
+            }
+
+            renderPagination(response.page, response.total_pages);
+        });
+    }
+
+    function renderPagination(page, totalPages) {
+        const container = $('#pagination-container');
+        container.empty();
+        
+        if (totalPages <= 1) return;
+        
+        // Prev
+        if (page > 1) {
+            container.append(`<a href="#" class="pagination-btn" onclick="loadSources(${page - 1}); return false;">上一页</a>`);
+        } else {
+            container.append(`<span class="pagination-btn disabled">上一页</span>`);
+        }
+        
+        // Info
+        container.append(`<span class="pagination-info">第 ${page} / ${totalPages} 页</span>`);
+        
+        // Next
+        if (page < totalPages) {
+            container.append(`<a href="#" class="pagination-btn" onclick="loadSources(${page + 1}); return false;">下一页</a>`);
+        } else {
+            container.append(`<span class="pagination-btn disabled">下一页</span>`);
+        }
+    }
+
+    $(document).ready(function() {
+        // Modal Handling
+        const modal = $('#sourceModal');
+        
+        $('#btn-add-source').click(function() {
+            $('#modalTitle').text('新增爬虫源');
+            $('#sourceForm')[0].reset();
+            $('#sourceId').val('');
+            $('#paginationStep').val(0);
+            $('#startValue').val(0);
+            modal.addClass('show');
+        });
+        
+        $('.close-modal-btn, .close-modal').click(function() {
+            modal.removeClass('show');
+        });
+        
+        // Edit Source
+        $(document).on('click', '.btn-edit', function() {
+            const id = $(this).data('id');
+            $.get(`/api/sources/${id}`, function(source) {
+                $('#modalTitle').text('编辑爬虫源');
+                $('#sourceId').val(source.id);
+                $('#sourceName').val(source.name);
+                $('#sourceUrl').val(source.url);
+                $('#sourceHeaders').val(source.headers);
+                $('#listSelector').val(source.list_selector);
+                $('#titleSelector').val(source.title_selector);
+                $('#linkSelector').val(source.link_selector);
+                $('#dateSelector').val(source.date_selector);
+                $('#coverSelector').val(source.cover_selector);
+                $('#paginationParam').val(source.pagination_param);
+                $('#paginationStep').val(source.pagination_step);
+                $('#startValue').val(source.start_value);
+                $('#sourceEnabled').prop('checked', source.is_enabled);
+                modal.addClass('show');
+            });
+        });
+
+        // Save Source
+        $('#sourceForm').submit(function(e) {
+            e.preventDefault();
+            
+            const data = {
+                name: $('#sourceName').val(),
+                url: $('#sourceUrl').val(),
+                headers: $('#sourceHeaders').val(),
+                list_selector: $('#listSelector').val(),
+                title_selector: $('#titleSelector').val(),
+                link_selector: $('#linkSelector').val(),
+                date_selector: $('#dateSelector').val(),
+                cover_selector: $('#coverSelector').val(),
+                pagination_param: $('#paginationParam').val(),
+                pagination_step: parseInt($('#paginationStep').val()) || 0,
+                start_value: parseInt($('#startValue').val()) || 0,
+                is_enabled: $('#sourceEnabled').is(':checked')
+            };
+            
+            const id = $('#sourceId').val();
+            const method = id ? 'PUT' : 'POST';
+            const url = id ? `/api/sources/${id}` : '/api/sources';
+            
+            $.ajax({
+                url: url,
+                method: method,
+                contentType: 'application/json',
+                data: JSON.stringify(data),
+                success: function(response) {
+                    showToast('保存成功', 'success');
+                    modal.removeClass('show');
+                    loadSources(currentPage);
+                },
+                error: function(xhr) {
+                    showToast('保存失败: ' + (xhr.responseJSON?.error || '未知错误'), 'error');
+                }
+            });
+        });
+
+        // Delete Source
+        $(document).on('click', '.btn-delete', function() {
+            const id = $(this).data('id');
+            showConfirm('确定要删除这个爬虫源吗？', function() {
+                $.ajax({
+                    url: `/api/sources/${id}`,
+                    method: 'DELETE',
+                    success: function(response) {
+                        showToast('删除成功', 'success');
+                        loadSources(currentPage);
+                    },
+                    error: function(xhr) {
+                        showToast('删除失败', 'error');
+                    }
+                });
+            });
+        });
+        
+        // Close modal on outside click
+        $(window).click(function(event) {
+            if (event.target == modal[0]) {
+                modal.removeClass('show');
+            }
+        });
+    });
+</script>
+{% endblock %}

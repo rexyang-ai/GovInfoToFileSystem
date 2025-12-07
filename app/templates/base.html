@@ -16,6 +16,7 @@
         {% if session.get('user_id') %}
         <div class="navbar-menu">
             <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">数据采集</a>
+            <a href="{{ url_for('crawler_manager') }}" class="{% if request.endpoint == 'crawler_manager' %}active{% endif %}">爬虫管理</a>
             <a href="{{ url_for('warehouse') }}" class="{% if request.endpoint == 'warehouse' %}active{% endif %}">数据仓库</a>
             <a href="{{ url_for('rules') }}" class="{% if request.endpoint == 'rules' %}active{% endif %}">规则库管理</a>
             <a href="{{ url_for('content_details') }}" class="{% if request.endpoint == 'content_details' %}active{% endif %}">深采内容管理</a>
@@ -41,6 +42,68 @@
         {% block content %}{% endblock %}
     </div>
 
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Global Confirmation Modal -->
+    <div id="globalConfirmModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <h3 class="mb-3">确认操作</h3>
+            <p id="globalConfirmMessage" class="mb-4">确定要执行此操作吗？</p>
+            <div class="d-flex justify-content-center gap-2">
+                <button class="btn btn-secondary" onclick="closeConfirmModal()">取消</button>
+                <button class="btn btn-danger" id="globalConfirmBtn">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global Confirm Modal Logic
+        let confirmCallback = null;
+
+        function showConfirm(message, callback) {
+            document.getElementById('globalConfirmMessage').textContent = message;
+            confirmCallback = callback;
+            const modal = document.getElementById('globalConfirmModal');
+            modal.classList.add('show');
+        }
+
+        function closeConfirmModal() {
+            const modal = document.getElementById('globalConfirmModal');
+            modal.classList.remove('show');
+            confirmCallback = null;
+        }
+
+        document.getElementById('globalConfirmBtn').addEventListener('click', function() {
+            if (confirmCallback) {
+                confirmCallback();
+            }
+            closeConfirmModal();
+        });
+
+        // Close on overlay click
+        document.getElementById('globalConfirmModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeConfirmModal();
+            }
+        });
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <span>${message}</span>
+                <span style="cursor:pointer; margin-left: 10px;" onclick="this.parentElement.remove()">&times;</span>
+            `;
+            container.appendChild(toast);
+
+            // Auto remove after 3 seconds
+            setTimeout(() => {
+                toast.style.animation = 'fadeOut 0.3s ease-out forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

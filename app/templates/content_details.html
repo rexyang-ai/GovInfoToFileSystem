@@ -9,8 +9,19 @@
         </div>
     </div>
 
+    <div class="filter-bar">
+        <form method="GET" action="{{ url_for('content_details') }}" style="display: flex; gap: 1rem; width: 100%; align-items: flex-end;">
+            <div class="filter-group" style="flex: 1;">
+                <label class="form-label">内容搜索</label>
+                <input type="text" name="keyword" class="form-control" value="{{ request.args.get('keyword', '') }}" placeholder="标题/链接...">
+            </div>
+            <button type="submit" class="btn">搜索</button>
+            <a href="{{ url_for('content_details') }}" class="btn btn-secondary">重置</a>
+        </form>
+    </div>
+
     <div class="table-container">
-        <table>
+        <table class="table table-hover">
             <thead>
                 <tr>
                     <th style="width: 50px;">ID</th>
@@ -32,8 +43,8 @@
                     </td>
                     <td>{{ item.crawled_at }}</td>
                     <td>
-                        <button class="btn btn-sm btn-info" onclick="viewContent({{ item.id }})">查看/修改</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteContent({{ item.id }})">删除</button>
+                        <button class="btn btn-sm btn-info" onclick="viewContent('{{ item.id }}')">查看/修改</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteContent('{{ item.id }}')">删除</button>
                     </td>
                 </tr>
                 {% else %}
@@ -44,12 +55,33 @@
             </tbody>
         </table>
     </div>
+
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="{{ url_for('content_details', page=page-1, keyword=request.args.get('keyword', '')) }}" class="pagination-btn">上一页</a>
+        {% else %}
+        <span class="pagination-btn disabled">上一页</span>
+        {% endif %}
+        
+        <span class="pagination-info">第 {{ page }} / {{ total_pages }} 页</span>
+        
+        {% if page < total_pages %}
+        <a href="{{ url_for('content_details', page=page+1, keyword=request.args.get('keyword', '')) }}" class="pagination-btn">下一页</a>
+        {% else %}
+        <span class="pagination-btn disabled">下一页</span>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 
 <!-- Content Modal -->
-<div id="contentModal" class="modal-overlay" style="display: none;">
+<div id="contentModal" class="modal-overlay">
     <div class="modal-content" style="max-width: 900px; width: 90%;">
-        <h3 style="margin-top: 0;">内容详情</h3>
+        <div class="modal-header">
+            <h3 style="margin: 0;">内容详情</h3>
+            <span class="close-modal-btn" onclick="closeModal()">&times;</span>
+        </div>
         
         <input type="hidden" id="contentId">
         
@@ -65,7 +97,7 @@
         
         <div class="form-group">
             <label>正文内容</label>
-            <textarea id="contentText" class="form-control" rows="15" style="font-family: monospace;"></textarea>
+            <textarea id="contentText" class="form-control content-preview" rows="15"></textarea>
         </div>
 
         <div style="text-align: right; margin-top: 20px;">
@@ -81,7 +113,7 @@
     const modal = document.getElementById('contentModal');
     
     function closeModal() {
-        modal.style.display = 'none';
+        modal.classList.remove('show');
     }
     
     function viewContent(id) {
@@ -90,7 +122,7 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    alert('加载失败: ' + data.error);
+                    showToast('加载失败: ' + data.error, 'error');
                     return;
                 }
                 
@@ -99,9 +131,9 @@
                 document.getElementById('contentUrl').value = data.source_url || '';
                 document.getElementById('contentText').value = data.content || '';
                 
-                modal.style.display = 'flex';
+                modal.classList.add('show');
             })
-            .catch(err => alert('请求错误: ' + err));
+            .catch(error => showToast('请求错误: ' + error, 'error'));
     }
     
     function saveContent() {
@@ -112,37 +144,36 @@
         fetch(`/content_details/update/${id}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ title: title, content: content })
+            body: JSON.stringify({ title, content })
         })
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert('保存失败: ' + data.error);
+                showToast('保存失败: ' + data.error, 'error');
             } else {
-                alert('保存成功');
-                modal.style.display = 'none';
-                location.reload();
+                showToast('保存成功', 'success');
+                setTimeout(() => location.reload(), 1000);
             }
         })
-        .catch(err => alert('保存请求错误: ' + err));
+        .catch(error => showToast('请求错误: ' + error, 'error'));
     }
     
     function deleteContent(id) {
-        if (!confirm('确定要删除这条深采数据吗？此操作不可恢复。')) return;
-        
-        fetch(`/content_details/delete/${id}`, {
-            method: 'POST'
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.error) {
-                alert('删除失败: ' + data.error);
-            } else {
-                alert('删除成功');
-                location.reload();
-            }
-        })
-        .catch(err => alert('删除请求错误: ' + err));
+        showConfirm('确定要删除这条内容吗？', function() {
+            fetch(`/content_details/delete/${id}`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('删除失败: ' + data.error, 'error');
+                } else {
+                    showToast('删除成功', 'success');
+                    setTimeout(() => location.reload(), 1000);
+                }
+            })
+            .catch(error => showToast('请求错误: ' + error, 'error'));
+        });
     }
 </script>
 {% endblock %}

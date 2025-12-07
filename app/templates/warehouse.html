@@ -7,11 +7,11 @@
     
     <div class="filter-bar">
         <form method="GET" action="{{ url_for('warehouse') }}" style="display: flex; gap: 1rem; width: 100%; align-items: flex-end;">
-            <div style="flex: 1;">
+            <div class="filter-group" style="flex: 1;">
                 <label class="form-label">关键字检索</label>
                 <input type="text" name="keyword" class="form-control" value="{{ request.args.get('keyword', '') }}" placeholder="标题/摘要/搜索词...">
             </div>
-            <div style="width: 200px;">
+            <div class="filter-group" style="width: 200px;">
                 <label class="form-label">按日期归类</label>
                 <input type="date" name="date" class="form-control" value="{{ request.args.get('date', '') }}">
             </div>
@@ -25,7 +25,7 @@
     </div>
 
     <div class="table-container">
-        <table>
+        <table class="table table-hover">
             <thead>
                 <tr>
                     <th style="width: 40px;"><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
@@ -73,11 +73,32 @@
             </tbody>
         </table>
     </div>
+
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        {% if page > 1 %}
+        <a href="{{ url_for('warehouse', page=page-1, keyword=request.args.get('keyword', ''), date=request.args.get('date', '')) }}" class="pagination-btn">上一页</a>
+        {% else %}
+        <span class="pagination-btn disabled">上一页</span>
+        {% endif %}
+        
+        <span class="pagination-info">第 {{ page }} / {{ total_pages }} 页</span>
+        
+        {% if page < total_pages %}
+        <a href="{{ url_for('warehouse', page=page+1, keyword=request.args.get('keyword', ''), date=request.args.get('date', '')) }}" class="pagination-btn">下一页</a>
+        {% else %}
+        <span class="pagination-btn disabled">下一页</span>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 
-<div id="crawlModal" class="modal-overlay" style="display: none;">
+<div id="crawlModal" class="modal-overlay">
     <div class="modal-content" style="max-width: 600px;">
-        <h3 style="margin-top: 0;">深度采集任务</h3>
+        <div class="modal-header">
+            <h3 style="margin: 0;">深度采集任务</h3>
+            <span class="close-modal-btn" onclick="closeCrawlModal()">&times;</span>
+        </div>
         
         <div id="crawlProgress" style="padding: 20px 0;">
             <div style="margin-bottom: 10px; display: flex; justify-content: space-between;">
@@ -89,7 +110,7 @@
             </div>
         </div>
         
-        <div id="crawlLogs" style="height: 200px; overflow-y: auto; background: rgba(0,0,0,0.2); color: var(--text-color); padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.9rem; font-family: monospace;">
+        <div id="crawlLogs" class="crawl-logs">
         </div>
         
         <div style="text-align: right; margin-top: 20px;">
@@ -98,9 +119,12 @@
     </div>
 </div>
 
-<div id="sniffModal" class="modal-overlay" style="display: none;">
+<div id="sniffModal" class="modal-overlay">
     <div class="modal-content">
-        <h3 id="modalTitle" style="margin-top: 0;">嗅探规则</h3>
+        <div class="modal-header">
+            <h3 id="modalTitle" style="margin: 0;">嗅探规则</h3>
+            <span class="close-modal-btn" onclick="closeModal()">&times;</span>
+        </div>
         
         <div id="sniffLoading" style="text-align: center; padding: 20px;">
             <div class="spinner"></div>
@@ -146,12 +170,12 @@
     const formDiv = document.getElementById('sniffForm');
     
     function closeModal() {
-        modal.style.display = 'none';
+        modal.classList.remove('show');
     }
     
     function startSniff(url) {
         // Reset UI
-        modal.style.display = 'flex';
+        modal.classList.add('show');
         loadingDiv.style.display = 'block';
         formDiv.style.display = 'none';
         document.getElementById('modalTitle').innerText = '正在嗅探...';
@@ -164,7 +188,7 @@
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert('嗅探失败: ' + data.error);
+                showToast('嗅探失败: ' + data.error, 'error');
                 closeModal();
             } else {
                 // Show Form
@@ -173,7 +197,7 @@
                 document.getElementById('modalTitle').innerText = '确认采集规则';
                 
                 // Fill data
-                document.getElementById('ruleUrl').value = url;
+                document.getElementById('ruleUrl').value = data.data.final_url || url;
                 document.getElementById('ruleName').value = data.data.rule_name;
                 document.getElementById('titleXpath').value = data.data.title_xpath;
                 document.getElementById('contentXpath').value = data.data.content_xpath;
@@ -181,7 +205,7 @@
             }
         })
         .catch(error => {
-            alert('请求错误: ' + error);
+            showToast('请求错误: ' + error, 'error');
             closeModal();
         });
     }
@@ -203,15 +227,15 @@
         .then(response => response.json())
         .then(data => {
             if (data.error) {
-                alert('保存失败: ' + data.error);
+                showToast('保存失败: ' + data.error, 'error');
             } else {
-                alert(data.message);
+                showToast(data.message, 'success');
                 closeModal();
-                location.reload();
+                setTimeout(() => location.reload(), 1000);
             }
         })
         .catch(error => {
-            alert('保存请求错误: ' + error);
+            showToast('保存请求错误: ' + error, 'error');
         });
     }
 
@@ -237,7 +261,7 @@
         const ids = Array.from(checkboxes).map(cb => cb.value);
         
         if (ids.length === 0) {
-            alert('请至少选择一项进行采集');
+            showToast('请至少选择一项进行采集', 'warning');
             return;
         }
         
@@ -245,35 +269,35 @@
     }
 
     function startCrawl(ids) {
-        if (!confirm(`确定要对选中的 ${ids.length} 条数据进行深度采集吗？`)) return;
+        showConfirm(`确定要对选中的 ${ids.length} 条数据进行深度采集吗？`, function() {
+            // Reset UI
+            crawlModal.classList.add('show');
+            logsDiv.innerHTML = '';
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('progressText').innerText = '正在初始化...';
+            document.getElementById('progressCount').innerText = `0/${ids.length}`;
+            closeCrawlBtn.innerText = '后台运行';
+            closeCrawlBtn.disabled = false;
 
-        // Reset UI
-        crawlModal.style.display = 'flex';
-        logsDiv.innerHTML = '';
-        document.getElementById('progressBar').style.width = '0%';
-        document.getElementById('progressText').innerText = '正在初始化...';
-        document.getElementById('progressCount').innerText = `0/${ids.length}`;
-        closeCrawlBtn.innerText = '后台运行';
-        closeCrawlBtn.disabled = false; // Allow backgrounding immediately if desired
-
-        fetch("{{ url_for('start_crawl') }}", {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ids: ids })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.error) {
-                alert('启动失败: ' + data.error);
-                crawlModal.style.display = 'none';
-            } else {
-                currentTaskId = data.task_id;
-                pollStatus();
-            }
-        })
-        .catch(err => {
-            alert('请求错误: ' + err);
-            crawlModal.style.display = 'none';
+            fetch("{{ url_for('start_crawl') }}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ids: ids })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.error) {
+                    showToast('启动失败: ' + data.error, 'error');
+                    crawlModal.classList.remove('show');
+                } else {
+                    currentTaskId = data.task_id;
+                    pollStatus();
+                }
+            })
+            .catch(err => {
+                showToast('请求错误: ' + err, 'error');
+                crawlModal.classList.remove('show');
+            });
         });
     }
 
@@ -292,8 +316,6 @@
 
                     // Update Logs
                     if (task.logs && task.logs.length > 0) {
-                        // Append new logs only? Or just replace for simplicity
-                        // Let's replace for now, but optimize if list is huge
                         logsDiv.innerHTML = task.logs.map(log => `<div>${log}</div>`).join('');
                         logsDiv.scrollTop = logsDiv.scrollHeight;
                     }
@@ -306,7 +328,7 @@
                         
                         // Show summary report
                         const summary = `
-                            <div style="margin-top: 20px; padding: 10px; background: #e9ecef; border-left: 5px solid #007bff;">
+                            <div style="margin-top: 20px;padding: 10px;background: #78909C;border-left: 5px solid #607D8B;">
                                 <strong>任务简报</strong><br>
                                 总数: ${task.total}<br>
                                 成功: ${task.success}<br>
@@ -324,11 +346,8 @@
     }
 
     function closeCrawlModal() {
-        crawlModal.style.display = 'none';
+        crawlModal.classList.remove('show');
         if (pollInterval) clearInterval(pollInterval);
-        // If task is still running, it continues in background (server-side)
-        // But UI stops polling.
-        // Reload page to refresh statuses? No, statuses are not visible in list yet.
     }
 </script>
 {% endblock %}

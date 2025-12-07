@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from openai import OpenAI
 import httpx
 from app.analysis_agent import stream_chat_with_data
+from app.crawler_manager import CrawlerManager
 from app.database.db import get_db_connection
 import dify_baidu_crawler
 import yaan_crawler
@@ -18,6 +19,84 @@ from urllib.parse import urlparse
 
 # Global dictionary to store crawl tasks
 crawl_tasks = {}
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+
+def search_task_runner(task_id, selected_sources, keyword, max_pages, max_items):
+    """
+    Background task to run the crawler and update progress.
+    """
+    try:
+        crawl_tasks[task_id]['status'] = 'running'
+        results = []
+        
+        # Helper to update progress
+        def progress_callback(current_count, limit_items, current_page, limit_pages):
+            # This callback comes from a single source execution.
+            # Since we might run multiple sources in parallel, this simple callback 
+            # might overwrite progress from other sources if not careful.
+            # For now, we'll just sum up results or update "last activity".
+            # A better way: accumulate counts in the task object.
+            # But execute_source_with_config is running in this thread (if sequential) 
+            # or sub-threads (if parallel).
+            
+            # If we run sources sequentially in this background task:
+            crawl_tasks[task_id]['progress'] = f"正在采集... (当前页: {current_page}/{limit_pages}, 已采集: {len(results) + current_count})"
+            crawl_tasks[task_id]['current_count'] = len(results) + current_count
+            # Note: This count is slightly off because 'results' is from previous sources, 
+            # and 'current_count' is from current source.
+            pass
+
+        # We need a way to aggregate progress if we run multiple sources.
+        # For simplicity, let's run sources SEQUENTIALLY in this background thread 
+        # so we can accurately report progress.
+        
+        conn = get_db_connection()
+        crawler_manager = CrawlerManager(None) # Connection not needed for execute_source_with_config if we pass config
+        
+        total_sources = len(selected_sources)
+        
+        for idx, source_id in enumerate(selected_sources):
+            source_row = conn.execute("SELECT * FROM crawl_sources WHERE id = ?", (source_id,)).fetchone()
+            if not source_row:
+                continue
+                
+            source_config = dict(source_row)
+            source_name = source_config.get('name', 'Unknown')
+            
+            crawl_tasks[task_id]['progress'] = f"正在采集 [{source_name}] ({idx+1}/{total_sources})..."
+            
+            # Define a specific callback for this source to update global task state
+            def specific_callback(curr_c, max_c, curr_p, max_p, current_results=None):
+                total_so_far = len(results) + curr_c
+                crawl_tasks[task_id]['current_count'] = total_so_far
+                crawl_tasks[task_id]['progress'] = f"正在采集 [{source_name}] ({idx+1}/{total_sources}): 第 {curr_p}/{max_p} 页, 累计 {total_so_far} 条"
+                if current_results:
+                     crawl_tasks[task_id]['results'] = results + current_results
+            
+            # Run crawler
+            res = crawler_manager.execute_source_with_config(
+                source_config, 
+                keyword, 
+                max_pages, 
+                max_items, 
+                progress_callback=specific_callback
+            )
+            
+            if res and 'result' in res:
+                results.extend(res['result'])
+                
+        conn.close()
+        
+        crawl_tasks[task_id]['results'] = results
+        crawl_tasks[task_id]['current_count'] = len(results)
+        crawl_tasks[task_id]['status'] = 'completed'
+        crawl_tasks[task_id]['progress'] = f"采集完成，共找到 {len(results)} 条数据"
+        
+    except Exception as e:
+        print(f"Task {task_id} error: {e}")
+        crawl_tasks[task_id]['status'] = 'failed'
+        crawl_tasks[task_id]['error'] = str(e)
+
 
 def parse_headers_to_json(header_str):
     """
@@ -136,6 +215,128 @@ def dashboard():
         return redirect(url_for('login'))
     return render_template('dashboard.html', username=session['username'])
 
+@app.route('/crawler-manager')
+def crawler_manager():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    return render_template('crawler_manager.html', username=session['username'])
+
+@app.route('/api/sources/full')
+def api_list_sources_full():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '', type=str)
+    per_page = request.args.get('per_page', 20, type=int)
+    offset = (page - 1) * per_page
+    
+    conn = get_db_connection()
+    
+    if keyword:
+        sources = conn.execute("SELECT * FROM crawl_sources WHERE name LIKE ? OR url LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?", 
+                             (f'%{keyword}%', f'%{keyword}%', per_page, offset)).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM crawl_sources WHERE name LIKE ? OR url LIKE ?", 
+                           (f'%{keyword}%', f'%{keyword}%')).fetchone()[0]
+    else:
+        sources = conn.execute("SELECT * FROM crawl_sources ORDER BY id DESC LIMIT ? OFFSET ?", (per_page, offset)).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM crawl_sources").fetchone()[0]
+        
+    conn.close()
+    
+    return jsonify({
+        'items': [dict(s) for s in sources],
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': (total + per_page - 1) // per_page
+    })
+
+@app.route('/api/sources', methods=['POST'])
+def create_source():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    data = request.get_json()
+    
+    try:
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO crawl_sources (name, url, headers, list_selector, title_selector, link_selector, date_selector, cover_selector, is_enabled, pagination_param, pagination_step, start_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data['name'], 
+            data['url'], 
+            parse_headers_to_json(data.get('headers', '{}')), 
+            data.get('list_selector'), 
+            data.get('title_selector'), 
+            data.get('link_selector'), 
+            data.get('date_selector'),
+            data.get('cover_selector'),
+            data.get('is_enabled', True),
+            data.get('pagination_param'),
+            data.get('pagination_step', 0),
+            data.get('start_value', 0)
+        ))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Created successfully'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sources/<int:id>', methods=['GET', 'PUT', 'DELETE'])
+def manage_source(id):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    conn = get_db_connection()
+    
+    if request.method == 'GET':
+        source = conn.execute("SELECT * FROM crawl_sources WHERE id = ?", (id,)).fetchone()
+        conn.close()
+        if not source:
+            return jsonify({'error': 'Not found'}), 404
+        return jsonify(dict(source))
+        
+    elif request.method == 'PUT':
+        data = request.get_json()
+        try:
+            conn.execute('''
+                UPDATE crawl_sources 
+                SET name=?, url=?, headers=?, list_selector=?, title_selector=?, link_selector=?, date_selector=?, cover_selector=?, is_enabled=?, pagination_param=?, pagination_step=?, start_value=?
+                WHERE id=?
+            ''', (
+                data['name'], 
+                data['url'], 
+                parse_headers_to_json(data.get('headers', '{}')), 
+                data.get('list_selector'), 
+                data.get('title_selector'), 
+                data.get('link_selector'), 
+                data.get('date_selector'),
+                data.get('cover_selector'),
+                data.get('is_enabled', True),
+                data.get('pagination_param'),
+                data.get('pagination_step', 0),
+                data.get('start_value', 0),
+                id
+            ))
+            conn.commit()
+            conn.close()
+            return jsonify({'message': 'Updated successfully'})
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': str(e)}), 500
+            
+    elif request.method == 'DELETE':
+        try:
+            conn.execute("DELETE FROM crawl_sources WHERE id = ?", (id,))
+            conn.commit()
+            conn.close()
+            return jsonify({'message': 'Deleted successfully'})
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': str(e)}), 500
+
 @app.route('/search', methods=['POST'])
 def search():
     if 'user_id' not in session:
@@ -143,48 +344,49 @@ def search():
         
     data = request.get_json()
     keyword = data.get('keyword', '')
+    selected_sources = data.get('sources', [])
+    max_pages = int(data.get('max_pages', 1))
+    max_items = int(data.get('max_items', 100))
     
     if not keyword:
         return jsonify({'error': 'Keyword is required'}), 400
         
-    # Call the crawlers concurrently
-    results = []
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            # Submit tasks
-            future_baidu = executor.submit(dify_baidu_crawler.main, keyword)
-            future_yaan = executor.submit(yaan_crawler.search_yaan, keyword)
-            
-            # Wait for results
-            baidu_res = future_baidu.result()
-            yaan_res = future_yaan.result()
-            
-            # Process Baidu Results
-            if baidu_res and 'result' in baidu_res:
-                for item in baidu_res['result']:
-                    item['source'] = '百度搜索'
-                    results.append(item)
-                    
-            # Process Yaan Results
-            if yaan_res and 'result' in yaan_res:
-                for item in yaan_res['result']:
-                    item['source'] = '雅安市人民政府'
-                    # Ensure keys match
-                    if 'date' in item:
-                        # Append date to summary if exists, or just ignore as UI doesn't show date column yet
-                        if item['summary']:
-                            item['summary'] = f"[{item['date']}] " + item['summary']
-                        else:
-                             item['summary'] = f"[{item['date']}]"
-                    results.append(item)
+    # Create a Task
+    task_id = str(uuid.uuid4())
+    crawl_tasks[task_id] = {
+        'status': 'initializing',
+        'progress': '正在初始化...',
+        'current_count': 0,
+        'total_planned': max_items,
+        'results': []
+    }
+    
+    # Start background task
+    executor.submit(search_task_runner, task_id, selected_sources, keyword, max_pages, max_items)
+    
+    return jsonify({'task_id': task_id})
 
-        return jsonify({"result": results})
+@app.route('/search/status/<task_id>')
+def search_status(task_id):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
         
-    except Exception as e:
-        print(f"Crawler error: {e}")
-        # Even if one fails, try to return what we have? 
-        # For now, just return error or empty
-        return jsonify({'error': str(e), 'result': []}), 500
+    task = crawl_tasks.get(task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+        
+    response = {
+        'status': task['status'],
+        'progress': task.get('progress', ''),
+        'current_count': task.get('current_count', 0),
+        'total_planned': task.get('total_planned', 0),
+        'result': task.get('results', [])
+    }
+    
+    if task['status'] == 'failed':
+        response['error'] = task.get('error')
+        
+    return jsonify(response)
 
 @app.route('/save', methods=['POST'])
 def save_data():
@@ -199,17 +401,47 @@ def save_data():
         return jsonify({'message': 'No items to save'}), 200
         
     conn = get_db_connection()
-    count = 0
+    insert_count = 0
+    update_count = 0
+    successful_urls = []
+    
+    # We will iterate through items and try to save them one by one.
+    # To avoid partial failures blocking others, we'll try/except inside the loop.
+    # Note: SQLite transaction behavior. If we want partial success, we can just commit at the end, 
+    # but if an error occurs (like unique constraint), we should handle it.
+    # Since we check for existence first, unique constraint on URL shouldn't trigger unless race condition.
+    
     try:
         for item in items:
-            # Check if URL already exists to avoid duplicates (optional, but good practice)
-            # For now, let's just insert or ignore if we had unique constraint (we don't on URL yet)
-            # But user might want to save same link for different keywords.
-            conn.execute('''
-                INSERT INTO crawled_data (title, url, summary, cover_url, search_keyword)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (item.get('title'), item.get('url'), item.get('summary'), item.get('cover_url'), keyword))
-            count += 1
+            try:
+                url = item.get('url')
+                if not url:
+                    continue
+                    
+                # Check if exists
+                existing = conn.execute('SELECT id FROM crawled_data WHERE url = ?', (url,)).fetchone()
+                
+                if existing:
+                    conn.execute('''
+                        UPDATE crawled_data 
+                        SET title = ?, summary = ?, cover_url = ?, search_keyword = ?
+                        WHERE id = ?
+                    ''', (item.get('title'), item.get('summary'), item.get('cover_url'), keyword, existing['id']))
+                    update_count += 1
+                else:
+                    conn.execute('''
+                        INSERT INTO crawled_data (title, url, summary, cover_url, search_keyword)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (item.get('title'), url, item.get('summary'), item.get('cover_url'), keyword))
+                    insert_count += 1
+                
+                successful_urls.append(url)
+                
+            except Exception as e:
+                print(f"Error saving item {item.get('url')}: {e}")
+                # Continue to next item
+                continue
+                
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -217,7 +449,12 @@ def save_data():
     finally:
         conn.close()
         
-    return jsonify({'message': f'成功保存 {count} 条数据。'})
+    return jsonify({
+        'message': f'保存操作完成。新增 {insert_count} 条，更新 {update_count} 条。',
+        'insert_count': insert_count,
+        'update_count': update_count,
+        'successful_urls': successful_urls
+    })
 
 @app.route('/warehouse')
 def warehouse():
@@ -226,27 +463,31 @@ def warehouse():
     
     keyword = request.args.get('keyword', '')
     date_filter = request.args.get('date', '')
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    offset = (page - 1) * per_page
     
-    # Join with crawling_rules to check if rules exist for the domain
-    # This is a bit complex because we need to match domain. 
-    # For simplicity, let's just fetch all rules and map in python or do a left join if we can extract domain in SQL.
-    # SQLite doesn't have easy domain extraction.
-    # So let's just fetch data and rules separately for now or just check simply.
-    
-    query = "SELECT * FROM crawled_data WHERE 1=1"
+    # Base query
+    where_clause = " WHERE 1=1"
     params = []
     
     if keyword:
-        query += " AND (title LIKE ? OR summary LIKE ? OR search_keyword LIKE ?)"
+        where_clause += " AND (title LIKE ? OR summary LIKE ? OR search_keyword LIKE ?)"
         params.extend([f'%{keyword}%', f'%{keyword}%', f'%{keyword}%'])
         
     if date_filter:
-        query += " AND date(created_at) = ?"
+        where_clause += " AND date(created_at) = ?"
         params.append(date_filter)
         
-    query += " ORDER BY created_at DESC"
-    
     conn = get_db_connection()
+    
+    # Count total
+    count_query = "SELECT COUNT(*) FROM crawled_data" + where_clause
+    total = conn.execute(count_query, params).fetchone()[0]
+    
+    # Fetch paginated items
+    query = "SELECT * FROM crawled_data" + where_clause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([per_page, offset])
     rows = conn.execute(query, params).fetchall()
     
     items = []
@@ -260,7 +501,7 @@ def warehouse():
 
     conn.close()
     
-    return render_template('warehouse.html', items=items, username=session['username'])
+    return render_template('warehouse.html', items=items, total=total, page=page, per_page=per_page, total_pages=(total + per_page - 1) // per_page, username=session['username'])
 
 @app.route('/sniff', methods=['POST'])
 def sniff():
@@ -273,16 +514,40 @@ def sniff():
     if not url:
         return jsonify({'error': 'URL is required'}), 400
         
+    # Attempt to find matching source for headers
+    conn = get_db_connection()
+    sources = conn.execute("SELECT url, headers FROM crawl_sources").fetchall()
+    conn.close()
+    
+    target_domain = extract_domain(url)
+    custom_headers = None
+    matched_source_url = None
+    
+    for s in sources:
+        s_url = s['url']
+        s_domain = extract_domain(s_url)
+        # Check if domains match (exact or subdomain)
+        if target_domain == s_domain or target_domain.endswith('.' + s_domain) or s_domain.endswith('.' + target_domain):
+             if s['headers']:
+                 custom_headers = s['headers']
+                 matched_source_url = s_url
+                 break
+    
     # 1. Sniff the page
-    result, error = sniffer.sniff_page(url)
+    result, error = sniffer.sniff_page(url, custom_headers)
     
     if error:
         return jsonify({'error': error}), 500
         
     # 2. Return data for confirmation (DO NOT SAVE YET)
-    domain = extract_domain(url)
+    # Use final_url from sniffer result if available (handles redirects)
+    final_url = result.get('final_url', url)
+    domain = extract_domain(final_url)
+    
     result['domain'] = domain
     result['rule_name'] = f"规则_{domain}"
+    if matched_source_url:
+         result['matched_source'] = matched_source_url
     
     return jsonify({'message': '嗅探成功', 'data': result})
 
@@ -333,11 +598,29 @@ def rules():
     if 'user_id' not in session:
         return redirect(url_for('index'))
     
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '', type=str)
+    per_page = 20
+    offset = (page - 1) * per_page
+
     conn = get_db_connection()
-    rules = conn.execute('SELECT * FROM crawling_rules ORDER BY created_at DESC').fetchall()
+    
+    where_clause = ""
+    params = []
+    if keyword:
+        where_clause = "WHERE rule_name LIKE ? OR domain LIKE ?"
+        params = [f'%{keyword}%', f'%{keyword}%']
+    
+    count_query = f"SELECT COUNT(*) FROM crawling_rules {where_clause}"
+    total = conn.execute(count_query, params).fetchone()[0]
+
+    query = f"SELECT * FROM crawling_rules {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([per_page, offset])
+    
+    rules = conn.execute(query, params).fetchall()
     conn.close()
     
-    return render_template('rules.html', rules=rules, username=session.get('username'))
+    return render_template('rules.html', rules=rules, total=total, page=page, per_page=per_page, total_pages=(total + per_page - 1) // per_page, username=session.get('username'))
 
 @app.route('/rules/get/<int:rule_id>')
 def get_rule(rule_id):
@@ -569,11 +852,29 @@ def content_details():
     if 'user_id' not in session:
         return redirect(url_for('index'))
     
+    page = request.args.get('page', 1, type=int)
+    keyword = request.args.get('keyword', '', type=str)
+    per_page = 20
+    offset = (page - 1) * per_page
+    
     conn = get_db_connection()
-    items = conn.execute('SELECT * FROM content_details ORDER BY crawled_at DESC').fetchall()
+    
+    where_clause = ""
+    params = []
+    if keyword:
+        where_clause = "WHERE title LIKE ? OR source_url LIKE ?"
+        params = [f'%{keyword}%', f'%{keyword}%']
+        
+    count_query = f"SELECT COUNT(*) FROM content_details {where_clause}"
+    total = conn.execute(count_query, params).fetchone()[0]
+    
+    query = f"SELECT * FROM content_details {where_clause} ORDER BY crawled_at DESC LIMIT ? OFFSET ?"
+    params.extend([per_page, offset])
+    
+    items = conn.execute(query, params).fetchall()
     conn.close()
     
-    return render_template('content_details.html', items=items, username=session.get('username'))
+    return render_template('content_details.html', items=items, total=total, page=page, per_page=per_page, total_pages=(total + per_page - 1) // per_page, username=session.get('username'))
 
 @app.route('/content_details/get/<int:id>')
 def get_content_detail(id):

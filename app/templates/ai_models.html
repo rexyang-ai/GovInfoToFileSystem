@@ -57,9 +57,12 @@
 </div>
 
 <!-- Add/Edit Modal -->
-<div id="modelModal" class="modal-overlay" style="display: none;">
+<div id="modelModal" class="modal-overlay">
     <div class="modal-content" style="max-width: 600px; width: 90%;">
-        <h3 id="modalTitle" style="margin-top: 0;">新增模型</h3>
+        <div class="modal-header">
+            <h3 id="modalTitle" style="margin: 0;">新增模型</h3>
+            <span class="close-modal-btn" onclick="closeModelModal()">&times;</span>
+        </div>
         <input type="hidden" id="modelId">
         
         <div class="form-group">
@@ -95,11 +98,11 @@
 </div>
 
 <!-- Test Chat Modal -->
-<div id="testModal" class="modal-overlay" style="display: none;">
+<div id="testModal" class="modal-overlay">
     <div class="modal-content" style="max-width: 800px; width: 90%; height: 80vh; display: flex; flex-direction: column; padding: 0;">
-        <div class="chat-header" style="padding: 1rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+        <div class="modal-header" style="padding: 1rem; margin-bottom: 0;">
             <h3 style="margin: 0;">测试模型: <span id="testModelName"></span></h3>
-            <button class="btn-icon" onclick="closeTestModal()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--text-color);">&times;</button>
+            <span class="close-modal-btn" onclick="closeTestModal()">&times;</span>
         </div>
         
         <div id="chatBox" style="flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem;">
@@ -188,7 +191,7 @@
             document.getElementById('name').value = model.name;
             document.getElementById('provider').value = model.provider;
             document.getElementById('api_base').value = model.api_base;
-            document.getElementById('api_key').value = model.api_key; // Note: Security concern, usually don't send back full key
+            document.getElementById('api_key').value = model.api_key; 
             document.getElementById('model_name').value = model.model_name;
         } else {
             document.getElementById('modalTitle').textContent = '新增模型';
@@ -199,11 +202,11 @@
             document.getElementById('api_key').value = '';
             document.getElementById('model_name').value = '';
         }
-        modelModal.style.display = 'flex';
+        modelModal.classList.add('show');
     }
 
     function closeModelModal() {
-        modelModal.style.display = 'none';
+        modelModal.classList.remove('show');
     }
 
     function editModel(id) {
@@ -234,21 +237,27 @@
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                location.reload();
+                showToast('保存成功', 'success');
+                setTimeout(() => location.reload(), 1000);
             } else {
-                alert('保存失败: ' + data.error);
+                showToast('保存失败: ' + data.error, 'error');
             }
         });
     }
 
     function deleteModel(id) {
-        if (!confirm('确定要删除此模型配置吗？')) return;
-        fetch(`/ai_models/delete/${id}`, { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) location.reload();
-                else alert('删除失败');
-            });
+        showConfirm('确定要删除此模型配置吗？', function() {
+            fetch(`/ai_models/delete/${id}`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('删除成功', 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        showToast('删除失败', 'error');
+                    }
+                });
+        });
     }
 
     // Test Logic
@@ -262,11 +271,11 @@
                 </div>
             </div>
         `;
-        testModal.style.display = 'flex';
+        testModal.classList.add('show');
     }
 
     function closeTestModal() {
-        testModal.style.display = 'none';
+        testModal.classList.remove('show');
         currentTestModelId = null;
     }
 
@@ -286,7 +295,7 @@
         div.appendChild(bubble);
         chatBox.appendChild(div);
         chatBox.scrollTop = chatBox.scrollHeight;
-        return bubble; // Return bubble for streaming updates
+        return bubble; 
     }
 
     function sendMessage() {
@@ -313,7 +322,7 @@
             }
             if (data.done) {
                 eventSource.close();
-                updateStats(); // Refresh stats after usage
+                updateStats(); 
             }
             if (data.error) {
                 aiBubble.innerHTML += `<br><span style="color:red">Error: ${data.error}</span>`;
@@ -325,6 +334,16 @@
             eventSource.close();
             aiBubble.innerHTML += '<br><span style="color:red">[Connection Closed]</span>';
         };
+    }
+    
+    // Close modals on outside click
+    window.onclick = function(event) {
+        if (event.target == modelModal) {
+            closeModelModal();
+        }
+        if (event.target == testModal) {
+            closeTestModal();
+        }
     }
 </script>
 {% endblock %}

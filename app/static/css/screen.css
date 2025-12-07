@@ -45,6 +45,7 @@ body.screen-mode {
     font-size: 2.5rem;
     font-weight: bold;
     background: linear-gradient(to bottom, #fff, #00f2ff);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);

@@ -61,6 +61,23 @@ def init_db():
             FOREIGN KEY(rule_id) REFERENCES crawling_rules(id)
         )
     ''')
+
+    # Create CrawlSources table (New)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS crawl_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            headers TEXT,
+            method TEXT DEFAULT 'GET',
+            list_selector TEXT,
+            title_selector TEXT,
+            link_selector TEXT,
+            date_selector TEXT,
+            is_enabled BOOLEAN DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     
     # Create AI Models table
     c.execute('''

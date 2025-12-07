@@ -1,22 +1,106 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="search-section">
-    <h2>数据采集控制台</h2>
-    <p class="text-muted">输入关键字启动智能爬虫，获取最新互联网数据</p>
-    <div class="search-box">
-        <input type="text" id="keyword" class="form-control" placeholder="请输入搜索关键字或需求..." style="font-size: 1.1rem;">
-        <button id="btn-search" class="btn">开始采集</button>
+<!-- Toast Container -->
+<div id="toast-container" class="toast-container"></div>
+
+<style>
+        .progress-container {
+            height: 25px;
+            background-color: #37474f;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-top: 20px;
+            display: none;
+            position: relative;
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #81c784);
+            width: 0%;
+            transition: width 0.5s ease;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .progress-text-overlay {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            color: white;
+            font-size: 0.85rem;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        /* Add striped animation */
+        .progress-bar {
+            background-image: linear-gradient(
+                45deg, 
+                rgba(255, 255, 255, 0.15) 25%, 
+                transparent 25%, 
+                transparent 50%, 
+                rgba(255, 255, 255, 0.15) 50%, 
+                rgba(255, 255, 255, 0.15) 75%, 
+                transparent 75%, 
+                transparent
+            );
+            background-size: 1rem 1rem;
+            animation: progress-bar-stripes 1s linear infinite;
+        }
+        @keyframes progress-bar-stripes {
+            0% { background-position: 1rem 0; }
+            100% { background-position: 0 0; }
+        }
+    </style>
+
+    <div class="search-section">
+        <h2>数据采集控制台</h2>
+        <p class="text-muted">输入关键字启动智能爬虫，获取最新互联网数据</p>
+        
+        <div class="search-box">
+            <input type="text" id="keyword" class="form-control" placeholder="请输入搜索关键字或需求..." style="font-size: 1.1rem;">
+            <button id="btn-search" class="btn">开始采集</button>
+        </div>
+    
+        <!-- Pagination Settings (Hidden by default) -->
+        <div id="pagination-settings" style="display: none; max-width: 800px; margin: 15px auto; text-align: left; padding: 10px; background: #263238; border-radius: 8px;">
+            <div style="display: flex; gap: 20px; align-items: center;">
+                <span style="font-weight: bold; color: var(--secondary-color);">采集设置:</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label for="max-pages" style="margin: 0;">最大页数:</label>
+                    <input type="number" id="max-pages" class="form-control" style="width: 80px;" value="5" min="1" max="100">
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label for="max-items" style="margin: 0;">最大数量:</label>
+                    <input type="number" id="max-items" class="form-control" style="width: 100px;" value="100" min="1" max="1000">
+                </div>
+                <small class="text-muted" style="margin-left: auto;">(仅对支持分页的数据源生效)</small>
+            </div>
+        </div>
+    
+        <!-- Progress Bar -->
+        <div id="search-progress" class="progress-container">
+            <div class="progress-bar"></div>
+            <div class="progress-text-overlay">准备就绪</div>
+        </div>
+
+    <div class="source-selection" style="margin-top: 20px; text-align: left; max-width: 800px; margin-left: auto; margin-right: auto;">
+        <div style="margin-bottom: 10px; color: var(--secondary-color); font-size: 0.9rem;">选择数据源:</div>
+        <div id="source-list" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+            <!-- Sources will be populated by JS -->
+        </div>
     </div>
 </div>
 
-<div id="loading" class="loading">
-    <div class="spinner"></div>
-    <p>正在连接百度数据源进行深度采集，请稍候...</p>
-</div>
-
-<div id="results-section" style="display: none;">
-    <div class="action-bar">
+<div id="results-section" style="display: none; margin-top: 30px;">
+    <div class="action-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h3>采集结果预览 (<span id="result-count">0</span>)</h3>
         <div>
             <button id="btn-select-all" class="btn btn-sm" style="background-color: var(--secondary-color);">全选</button>
@@ -32,51 +116,227 @@
 
 {% block scripts %}
 <script>
+    // Toast Function
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `
+            <span>${message}</span>
+            <span style="cursor:pointer; margin-left: 10px;" onclick="this.parentElement.remove()">&times;</span>
+        `;
+        container.appendChild(toast);
+
+        // Auto remove after 3 seconds
+        setTimeout(() => {
+            toast.style.animation = 'fadeOut 0.3s ease-out forwards';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
     $(document).ready(function() {
+        const defaultNoImage = "{{ url_for('static', filename='images/noimage.png') }}";
         let currentResults = [];
+        let allSources = {};
+
+        // Load dynamic sources
+        $.get("{{ url_for('api_list_sources_full') }}", { per_page: 1000 }, function(response) {
+            const container = $('#source-list');
+            const data = response.items || [];
+            if(data.length === 0) {
+                container.html('<span class="text-muted">暂无可用数据源</span>');
+                return;
+            }
+            data.forEach(function(source) {
+                allSources[source.id] = source;
+                const toggle = `
+                    <label class="toggle-label">
+                        <div class="toggle-switch">
+                            <input type="checkbox" name="source" value="${source.id}">
+                            <span class="slider"></span>
+                        </div>
+                        ${source.name}
+                    </label>
+                `;
+                container.append(toggle);
+            });
+            updatePaginationVisibility();
+        }).fail(function() {
+            showToast('加载数据源失败', 'error');
+        });
+
+        $(document).on('change', 'input[name="source"]', function() {
+            updatePaginationVisibility();
+        });
+
+        function updatePaginationVisibility() {
+            let hasPagination = false;
+            $('input[name="source"]:checked').each(function() {
+                const id = $(this).val();
+                const source = allSources[id];
+                if (source && source.pagination_param) {
+                    hasPagination = true;
+                    return false;
+                }
+            });
+            
+            if (hasPagination) {
+                $('#pagination-settings').slideDown();
+            } else {
+                $('#pagination-settings').slideUp();
+            }
+        }
 
         $('#btn-search').click(function() {
             const keyword = $('#keyword').val().trim();
             if (!keyword) {
-                alert('请输入关键字');
+                showToast('请输入关键字', 'error');
                 return;
             }
 
+            // Get selected sources
+            const selectedSources = [];
+            $('input[name="source"]:checked').each(function() {
+                selectedSources.push($(this).val());
+            });
+
+            if (selectedSources.length === 0) {
+                showToast('请至少选择一个数据源', 'error');
+                return;
+            }
+
+            // Get Pagination Config
+            const maxPages = parseInt($('#max-pages').val()) || 1;
+            const maxItems = parseInt($('#max-items').val()) || 100;
+
+            // Reset UI
             $('#results-section').hide();
-            $('#loading').show();
             $('#results-grid').empty();
             currentResults = [];
+            
+            const btn = $(this);
+            const originalText = btn.text();
+            btn.prop('disabled', true).text('采集进行中...');
+            
+            // Start Progress
+            $('#search-progress').show();
+            $('.progress-bar').css('width', '0%');
+            $('.progress-text-overlay').text('正在初始化...');
+            
+            showToast('开始采集...', 'info');
 
             $.ajax({
                 url: "{{ url_for('search') }}",
                 method: 'POST',
                 contentType: 'application/json',
-                data: JSON.stringify({ keyword: keyword }),
+                data: JSON.stringify({ 
+                    keyword: keyword,
+                    sources: selectedSources,
+                    max_pages: maxPages,
+                    max_items: maxItems
+                }),
                 success: function(response) {
-                    $('#loading').hide();
-                    if (response.result && response.result.length > 0) {
-                        currentResults = response.result;
-                        $('#result-count').text(currentResults.length);
-                        $('#results-section').fadeIn();
-                        renderResults(currentResults);
-                    } else {
-                        alert('未找到相关数据');
-                    }
+                    const taskId = response.task_id;
+                    pollStatus(taskId, btn, originalText, maxItems);
                 },
                 error: function(xhr) {
-                    $('#loading').hide();
-                    alert('采集失败: ' + (xhr.responseJSON?.error || '未知错误'));
+                    $('.progress-bar').css('background', '#ef4444');
+                    setTimeout(() => $('#search-progress').fadeOut(), 1000);
+                    btn.prop('disabled', false).text(originalText);
+                    showToast('启动采集失败: ' + (xhr.responseJSON?.error || '未知错误'), 'error');
                 }
             });
         });
 
-        function renderResults(results) {
+        function pollStatus(taskId, btn, originalText, maxItems) {
+            const interval = setInterval(() => {
+                $.get(`/search/status/${taskId}`, function(statusData) {
+                    // Update Progress
+                    const currentCount = statusData.current_count || 0;
+                    const percentage = Math.min((currentCount / maxItems) * 100, 95); // Cap at 95 until done
+                    
+                    $('.progress-bar').css('width', percentage + '%');
+                    
+                    // Update text inside bar
+                    let progressText = statusData.progress || `已采集 ${currentCount} 条`;
+                    let textContent = `${progressText} (${Math.round(percentage)}%)`;
+                    $('.progress-text-overlay').text(textContent);
+
+                    // --- INCREMENTAL RENDERING START ---
+                    const newResults = statusData.result || [];
+                    if (newResults.length > currentResults.length) {
+                        const startIdx = currentResults.length;
+                        const itemsToAdd = newResults.slice(startIdx);
+                        
+                        // Render appended items
+                        if ($('#results-section').is(':hidden')) {
+                            $('#results-section').fadeIn();
+                        }
+                        
+                        renderResults(itemsToAdd, true, startIdx);
+                        currentResults = newResults; // Update local state
+                        
+                        $('#result-count').text(currentResults.length);
+                        
+                        // Update Stats Display if exists
+                         if ($('#stats-display').length === 0) {
+                            $('#results-section .action-bar h3').after(`<span id="stats-display" style="margin-left: 20px; font-size: 0.9rem; color: var(--secondary-color);">计划: ${maxItems} / 实际: ${currentResults.length}</span>`);
+                        } else {
+                            $('#stats-display').text(`计划: ${maxItems} / 实际: ${currentResults.length}`);
+                        }
+                    }
+                    // --- INCREMENTAL RENDERING END ---
+
+                    if (statusData.status === 'completed') {
+                        clearInterval(interval);
+                        $('.progress-bar').css('width', '100%');
+                        $('.progress-text-overlay').text('采集完成 (100%)');
+                        setTimeout(() => $('#search-progress').fadeOut(), 2000);
+                        
+                        btn.prop('disabled', false).text(originalText);
+                        
+                        // Final check to ensure everything is rendered
+                        if (statusData.result && statusData.result.length > currentResults.length) {
+                             const startIdx = currentResults.length;
+                             const itemsToAdd = statusData.result.slice(startIdx);
+                             renderResults(itemsToAdd, true, startIdx);
+                             currentResults = statusData.result;
+                             $('#result-count').text(currentResults.length);
+                             if ($('#stats-display').length > 0) {
+                                $('#stats-display').text(`计划: ${maxItems} / 实际: ${currentResults.length}`);
+                             }
+                        }
+                        
+                        // Show Stats
+                        showToast(`采集完成，计划 ${maxItems} 条，实际 ${currentResults.length} 条`, 'success');
+                        
+                        if (currentResults.length === 0) {
+                            showToast('未找到相关数据', 'info');
+                        }
+                    } else if (statusData.status === 'failed') {
+                        clearInterval(interval);
+                        $('.progress-bar').css('background', '#ef4444');
+                        $('.progress-text-overlay').text('采集失败');
+                        btn.prop('disabled', false).text(originalText);
+                        showToast('采集出错: ' + statusData.error, 'error');
+                    }
+                }).fail(function() {
+                    clearInterval(interval);
+                    btn.prop('disabled', false).text(originalText);
+                    showToast('查询进度失败', 'error');
+                });
+            }, 1000);
+        }
+
+        function renderResults(results, append = false, startOffset = 0) {
             const grid = $('#results-grid');
+            if (!append) grid.empty(); // Clear previous
             results.forEach((item, index) => {
+                const globalIndex = startOffset + index;
                 const card = `
-                    <div class="result-card" data-index="${index}">
+                    <div class="result-card" data-index="${globalIndex}">
                         <input type="checkbox" class="result-checkbox" checked>
-                        <img src="${item.cover_url || 'https://via.placeholder.com/400x200?text=No+Image'}" class="result-img" onerror="this.src='https://via.placeholder.com/400x200?text=Error'">
+                        <img src="${item.cover_url || defaultNoImage}" class="result-img" onerror="this.src='${defaultNoImage}'">
                         <div class="result-content">
                             <h3 class="result-title">
                                 <a href="${item.url}" target="_blank">${item.title}</a>
@@ -84,6 +344,7 @@
                             <div class="result-summary">${item.summary || '暂无摘要'}</div>
                             <div class="result-meta">
                                 <span class="text-muted">来源: ${item.source || '互联网'}</span>
+                                <span class="text-muted" style="margin-left: 10px;">${item.date || ''}</span>
                             </div>
                         </div>
                     </div>
@@ -105,7 +366,7 @@
             });
 
             if (selectedIndices.length === 0) {
-                alert('请至少选择一项数据');
+                showToast('请至少选择一项数据', 'error');
                 return;
             }
 
@@ -121,11 +382,36 @@
                     keyword: keyword
                 }),
                 success: function(response) {
-                    alert(response.message);
-                    window.location.href = "{{ url_for('warehouse') }}";
+                    showToast(response.message, 'success');
+                    
+                    // Handle successful removals
+                    if (response.successful_urls && response.successful_urls.length > 0) {
+                        const successfulUrls = new Set(response.successful_urls);
+                        let removedCount = 0;
+                        
+                        $('.result-card').each(function() {
+                            const index = $(this).data('index');
+                            const item = currentResults[index];
+                            if (item && successfulUrls.has(item.url)) {
+                                $(this).fadeOut(500, function() {
+                                    $(this).remove();
+                                });
+                                removedCount++;
+                            }
+                        });
+                        
+                        // Update the visible count in the header
+                        // Note: We don't update currentResults array to keep indices valid for remaining items
+                        const currentVisible = $('.result-card').length; // This might count fading out items if run immediately
+                        // Better to rely on removedCount
+                        // But since fadeOut is async, we can just update the text based on current value
+                        const countEl = $('#result-count');
+                        const newCount = Math.max(0, parseInt(countEl.text()) - removedCount);
+                        countEl.text(newCount);
+                    }
                 },
                 error: function(xhr) {
-                    alert('保存失败: ' + (xhr.responseJSON?.error || '未知错误'));
+                    showToast('保存失败: ' + (xhr.responseJSON?.error || '未知错误'), 'error');
                 }
             });
         });
