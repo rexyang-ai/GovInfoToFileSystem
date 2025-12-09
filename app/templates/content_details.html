@@ -17,6 +17,7 @@
             </div>
             <button type="submit" class="btn">搜索</button>
             <a href="{{ url_for('content_details') }}" class="btn btn-secondary">重置</a>
+            <a href="{{ url_for('export_content_details', keyword=request.args.get('keyword', '')) }}" class="btn btn-success" target="_blank">导出CSV</a>
         </form>
     </div>
 

@@ -7,6 +7,9 @@
         <div class="sidebar-header">
             <h3>AI分析报告</h3>
             <p class="text-muted" style="font-size: 0.85rem;">基于深采数据智能分析</p>
+            <button class="btn btn-sm btn-outline-primary w-100 mt-2" onclick="createNewChat()" style="border: 1px solid var(--accent-color); color: var(--accent-color); background: transparent; padding: 0.4rem; border-radius: 4px; cursor: pointer;">
+                <i class="fas fa-plus"></i> 新建对话
+            </button>
         </div>
         
         <div class="form-group">
@@ -20,7 +23,7 @@
             </select>
         </div>
 
-        <div class="history-list" style="flex: 1; overflow-y: auto;">
+        <div class="history-list" id="historyList" style="flex: 1; overflow-y: auto;">
             <div class="text-muted" style="font-size: 0.85rem; text-align: center; margin-top: 2rem;">
                 暂无历史会话
             </div>
@@ -210,6 +213,7 @@
     const statusText = document.getElementById('statusText');
     
     let isProcessing = false;
+    let currentConversationId = null;
 
     // Handle Enter key
     queryInput.addEventListener('keydown', function(e) {
@@ -218,6 +222,139 @@
             sendQuery();
         }
     });
+
+    // Load history on start
+    document.addEventListener('DOMContentLoaded', function() {
+        loadHistory();
+    });
+
+    function loadHistory() {
+        fetch('/api/ai/conversations')
+            .then(res => res.json())
+            .then(data => {
+                const list = document.getElementById('historyList');
+                if (data.length === 0) {
+                    list.innerHTML = `
+                        <div class="text-muted" style="font-size: 0.85rem; text-align: center; margin-top: 2rem;">
+                            暂无历史会话
+                        </div>`;
+                    return;
+                }
+                
+                list.innerHTML = '';
+                data.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    div.style.cssText = 'padding: 0.8rem; cursor: pointer; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;';
+                    if (item.id === currentConversationId) {
+                        div.style.background = 'rgba(var(--accent-rgb), 0.1)';
+                    }
+                    
+                    div.innerHTML = `
+                        <div onclick="loadConversation(${item.id})" style="flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">
+                            ${item.title}
+                            <div style="font-size: 0.7rem; color: #999;">${item.created_at}</div>
+                        </div>
+                        <button onclick="deleteConversation(event, ${item.id})" style="border:none; background:none; color:#dc3545; cursor:pointer; padding:2px;">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `;
+                    list.appendChild(div);
+                });
+            });
+    }
+
+    function createNewChat() {
+        currentConversationId = null;
+        chatWindow.innerHTML = `
+            <div class="message ai">
+                <div class="avatar" style="background: var(--accent-color);">AI</div>
+                <div class="content-wrapper">
+                    <div class="bubble">
+                        你好！我是智能数据分析助手。我可以帮你查询数据库中的深采内容，进行统计、分析并生成报告。<br>
+                        你可以试着问我：<br>
+                        <ul>
+                            <li>“统计一下最近采集了多少条数据？”</li>
+                            <li>“帮我找出标题中包含‘政策’的内容。”</li>
+                            <li>“分析一下最近采集数据的来源分布。”</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>`;
+        loadHistory(); // Refresh to clear active state
+    }
+
+    function loadConversation(id) {
+        currentConversationId = id;
+        loadHistory(); // Update active state
+        
+        fetch(`/api/ai/conversations/${id}/messages`)
+            .then(res => res.json())
+            .then(messages => {
+                chatWindow.innerHTML = ''; // Clear existing
+                
+                if (messages.length === 0) {
+                     chatWindow.innerHTML = `
+                        <div class="message ai">
+                            <div class="avatar" style="background: var(--accent-color);">AI</div>
+                            <div class="content-wrapper">
+                                <div class="bubble">
+                                    对话已加载，请继续提问。
+                                </div>
+                            </div>
+                        </div>`;
+                }
+                
+                messages.forEach(msg => {
+                    const bubble = appendMessage(msg.role, '', true);
+                    
+                    // Content
+                    let contentDiv = document.createElement('div');
+                    contentDiv.className = 'markdown-content';
+                    contentDiv.innerHTML = marked.parse(msg.content || '');
+                    bubble.appendChild(contentDiv);
+                    
+                    // Charts (meta_info)
+                    if (msg.meta_info) {
+                        try {
+                            const meta = JSON.parse(msg.meta_info);
+                            if (meta.chart_options) {
+                                 const chartId = 'chart-' + Date.now() + Math.random();
+                                 const container = document.createElement('div');
+                                 container.className = 'chart-container';
+                                 container.style.cssText = 'margin-top: 1rem; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fff;';
+                                 
+                                 const chartDiv = document.createElement('div');
+                                 chartDiv.id = chartId;
+                                 chartDiv.style.width = '100%';
+                                 chartDiv.style.height = '400px';
+                                 
+                                 container.appendChild(chartDiv);
+                                 bubble.appendChild(container);
+                                 
+                                 // Delay render slightly to ensure DOM is ready
+                                 setTimeout(() => renderChart(chartDiv, meta.chart_options), 100);
+                            }
+                        } catch(e) { console.error(e); }
+                    }
+                });
+                scrollToBottom();
+            });
+    }
+
+    function deleteConversation(e, id) {
+        e.stopPropagation();
+        if(!confirm('确定要删除这个会话吗？')) return;
+        
+        fetch(`/api/ai/conversations/${id}`, { method: 'DELETE' })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) {
+                    if(currentConversationId === id) createNewChat();
+                    else loadHistory();
+                }
+            });
+    }
 
     function scrollToBottom() {
         chatWindow.scrollTop = chatWindow.scrollHeight;
@@ -253,11 +390,6 @@
     }
 
     function appendToolStep(container, text, icon = 'fas fa-cog') {
-        // If container is a bubble, we might want to append before the text or in a separate area?
-        // Let's actually append these to the chat flow as "system" notifications or inside the AI's response area before the text.
-        // For better UI, let's put them inside the AI's message wrapper but outside the bubble, or inside the bubble at top.
-        // Let's go with: AI message bubble starts with these steps.
-        
         let stepsContainer = container.querySelector('.steps-container');
         if (!stepsContainer) {
             stepsContainer = document.createElement('div');
@@ -282,7 +414,7 @@
         stepElement.classList.remove('active');
     }
 
-    function sendQuery() {
+    async function sendQuery() {
         const text = queryInput.value.trim();
         const modelId = document.getElementById('modelSelect').value;
         
@@ -290,6 +422,27 @@
         if (!modelId) {
             alert('请先选择一个AI模型');
             return;
+        }
+
+        // Ensure conversation exists
+        if (!currentConversationId) {
+            try {
+                const res = await fetch('/api/ai/conversations', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        title: text.length > 20 ? text.substring(0, 20) + '...' : text,
+                        model_id: modelId
+                    })
+                });
+                const data = await res.json();
+                currentConversationId = data.id;
+                loadHistory(); // Show in sidebar
+            } catch (e) {
+                console.error("Failed to create conversation:", e);
+                alert("创建会话失败");
+                return;
+            }
         }
 
         // UI Updates
@@ -308,7 +461,7 @@
         statusText.innerText = '正在初始化...';
 
         // SSE Connection
-        const eventSource = new EventSource(`/ai_analysis/chat_stream?model_id=${modelId}&message=${encodeURIComponent(text)}`);
+        const eventSource = new EventSource(`/ai_analysis/chat_stream?model_id=${modelId}&message=${encodeURIComponent(text)}&conversation_id=${currentConversationId}`);
         
         let fullContent = '';
         let currentStepElement = null;
@@ -391,7 +544,7 @@
         eventSource.onerror = function() {
             closeStream();
             if (!fullContent) {
-                aiBubble.innerHTML += '<span style="color:red">连接断开</span>';
+                // Check if it was just a normal close
             }
         };
 

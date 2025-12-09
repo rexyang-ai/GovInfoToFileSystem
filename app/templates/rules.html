@@ -43,6 +43,7 @@
                     <td>{{ rule.created_at }}</td>
                     <td>
                         <button class="btn btn-sm btn-info" onclick="editRule('{{ rule.id }}')">编辑</button>
+                        <button class="btn btn-sm" style="background:#17a2b8;color:#fff;border-color:#17a2b8;" onclick="refreshHeaders('{{ rule.id }}')">嗅探Headers</button>
                         <button class="btn btn-sm btn-warning" onclick="copyRule('{{ rule.id }}')">复制</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteRule('{{ rule.id }}')">删除</button>
                     </td>
@@ -224,6 +225,21 @@
                 })
                 .catch(err => showToast('请求错误: ' + err, 'error'));
         });
+    }
+
+    function refreshHeaders(id) {
+        showToast('正在嗅探并更新请求头...', 'info');
+        fetch(`/rules/refresh_headers/${id}`, { method: 'POST' })
+          .then(res => res.json())
+          .then(res => {
+            if (res.error) {
+                showToast('嗅探失败: ' + res.error, 'error');
+            } else {
+                showToast('请求头已更新', 'success');
+                setTimeout(()=>location.reload(), 1000);
+            }
+          })
+          .catch(err => showToast('请求错误: ' + err, 'error'));
     }
 </script>
 {% endblock %}

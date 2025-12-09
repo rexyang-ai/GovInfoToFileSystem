@@ -105,6 +105,33 @@ def init_db():
         )
     ''')
     
+    # Create AI Conversations table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS ai_conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            title TEXT,
+            model_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(model_id) REFERENCES ai_models(id)
+        )
+    ''')
+
+    # Create AI Messages table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS ai_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER,
+            role TEXT,
+            content TEXT,
+            meta_info TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
+        )
+    ''')
+    
     # Check if admin exists
     c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
     if not c.fetchone():

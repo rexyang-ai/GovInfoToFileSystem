@@ -205,6 +205,23 @@ class VisualSniffer(QMainWindow):
 
     def closeEvent(self, event):
         self.is_closing = True
+        # Notify backend to refresh and optionally update rule headers
+        try:
+            curr_url = ''
+            try:
+                q = self.browser.url()
+                curr_url = q.toString() if hasattr(q, 'toString') else str(q)
+            except Exception:
+                pass
+            headers_text = ''
+            try:
+                headers_text = self.headers_edit.toPlainText() if hasattr(self, 'headers_edit') else ''
+            except Exception:
+                headers_text = ''
+            payload = { 'url': curr_url, 'headers': headers_text }
+            requests.post('http://127.0.0.1:5000/sniffer/closed', json=payload, timeout=3)
+        except Exception:
+            pass
         # Detach interceptor to prevent signals after window closure
         # Since we use defaultProfile, we must clean up
         try:

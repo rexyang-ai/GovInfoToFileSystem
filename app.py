@@ -18,6 +18,8 @@ import time
 from urllib.parse import urlparse
 import subprocess
 import sys
+import csv
+import io
 
 # Global dictionary to store crawl tasks
 crawl_tasks = {}
@@ -478,7 +480,7 @@ def warehouse():
         params.extend([f'%{keyword}%', f'%{keyword}%', f'%{keyword}%'])
         
     if date_filter:
-        where_clause += " AND date(created_at) = ?"
+        where_clause += " AND date(datetime(created_at,'localtime')) = ?"
         params.append(date_filter)
         
     conn = get_db_connection()
@@ -488,9 +490,15 @@ def warehouse():
     total = conn.execute(count_query, params).fetchone()[0]
     
     # Fetch paginated items
-    query = "SELECT * FROM crawled_data" + where_clause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    query = "SELECT id, title, url, summary, cover_url, search_keyword, datetime(created_at,'localtime') AS created_at FROM crawled_data" + where_clause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([per_page, offset])
     rows = conn.execute(query, params).fetchall()
+    urls = [row['url'] for row in rows]
+    deep_set = set()
+    if urls:
+        placeholders = ','.join('?' for _ in urls)
+        deep_rows = conn.execute(f'SELECT source_url FROM content_details WHERE source_url IN ({placeholders})', urls).fetchall()
+        deep_set = set(dr['source_url'] for dr in deep_rows)
     
     items = []
     for row in rows:
@@ -499,6 +507,7 @@ def warehouse():
         rule = conn.execute('SELECT rule_name FROM crawling_rules WHERE domain = ?', (domain,)).fetchone()
         item['rule_name'] = rule['rule_name'] if rule else None
         item['has_rules'] = True if rule else False
+        item['is_deep_crawled'] = item['url'] in deep_set
         items.append(item)
 
     conn.close()
@@ -623,7 +632,7 @@ def rules():
     count_query = f"SELECT COUNT(*) FROM crawling_rules {where_clause}"
     total = conn.execute(count_query, params).fetchone()[0]
 
-    query = f"SELECT * FROM crawling_rules {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    query = f"SELECT id, rule_name, domain, url_pattern, title_xpath, content_xpath, request_headers, datetime(created_at,'localtime') AS created_at FROM crawling_rules {where_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([per_page, offset])
     
     rules = conn.execute(query, params).fetchall()
@@ -877,7 +886,7 @@ def content_details():
     count_query = f"SELECT COUNT(*) FROM content_details {where_clause}"
     total = conn.execute(count_query, params).fetchone()[0]
     
-    query = f"SELECT * FROM content_details {where_clause} ORDER BY crawled_at DESC LIMIT ? OFFSET ?"
+    query = f"SELECT id, title, source_url, content, html_content, datetime(crawled_at,'localtime') AS crawled_at FROM content_details {where_clause} ORDER BY crawled_at DESC LIMIT ? OFFSET ?"
     params.extend([per_page, offset])
     
     items = conn.execute(query, params).fetchall()
@@ -934,6 +943,48 @@ def delete_content_detail(id):
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
+
+@app.route('/content_details/export')
+def export_content_details():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+        
+    keyword = request.args.get('keyword', '')
+    
+    def generate():
+        conn = get_db_connection()
+        try:
+            where_clause = ""
+            params = []
+            
+            if keyword:
+                where_clause = "WHERE title LIKE ? OR source_url LIKE ?"
+                params = [f'%{keyword}%', f'%{keyword}%']
+                
+            query = f"SELECT id, title, source_url, content, datetime(crawled_at,'localtime') AS crawled_at FROM content_details {where_clause} ORDER BY crawled_at DESC"
+            
+            cursor = conn.execute(query, params)
+            
+            data = io.StringIO()
+            w = csv.writer(data)
+            
+            # Write header (with BOM for Excel compatibility)
+            data.write('\ufeff')
+            w.writerow(('ID', '标题', '源链接', '采集时间', '内容'))
+            yield data.getvalue()
+            data.seek(0)
+            data.truncate(0)
+            
+            for row in cursor:
+                w.writerow((row['id'], row['title'], row['source_url'], row['crawled_at'], row['content']))
+                yield data.getvalue()
+                data.seek(0)
+                data.truncate(0)
+        finally:
+            conn.close()
+            
+    return Response(stream_with_context(generate()), mimetype='text/csv', 
+                    headers={"Content-Disposition": f"attachment; filename=content_details_export_{int(time.time())}.csv"})
 
 # AI Model Management Routes
 
@@ -1103,6 +1154,50 @@ def ai_analysis():
     
     return render_template('ai_analysis.html', models=[dict(m) for m in models], username=session.get('username'))
 
+def stream_chat_wrapper(model_config, messages, conversation_id, user_message_content):
+    conn = get_db_connection()
+    
+    # Save User Message
+    conn.execute('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)',
+                 (conversation_id, 'user', user_message_content))
+    conn.commit()
+    conn.close()
+    
+    # Helper to save assistant message later
+    full_content = []
+    chart_options = None
+    
+    try:
+        # We need to yield from the original generator
+        for chunk in stream_chat_with_data(model_config, messages):
+            yield chunk
+            # Parse chunk to accumulate
+            if chunk.startswith("data: "):
+                try:
+                    data = json.loads(chunk[6:])
+                    if data['type'] == 'content':
+                        full_content.append(data['content'])
+                    elif data['type'] == 'chart':
+                        chart_options = data['options']
+                except:
+                    pass
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+    finally:
+        # Save Assistant Message
+        conn = get_db_connection()
+        final_content = "".join(full_content)
+        meta_info = json.dumps({'chart_options': chart_options}) if chart_options else None
+        
+        if final_content or meta_info:
+            conn.execute('INSERT INTO ai_messages (conversation_id, role, content, meta_info) VALUES (?, ?, ?, ?)',
+                        (conversation_id, 'assistant', final_content, meta_info))
+            
+            # Update conversation timestamp
+            conn.execute('UPDATE ai_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', (conversation_id,))
+            conn.commit()
+        conn.close()
+
 @app.route('/ai_analysis/chat_stream')
 def ai_analysis_chat_stream():
     if 'user_id' not in session:
@@ -1110,16 +1205,16 @@ def ai_analysis_chat_stream():
         
     model_id = request.args.get('model_id')
     message = request.args.get('message')
-    history = request.args.get('history')
+    conversation_id = request.args.get('conversation_id')
     
     if not model_id or not message:
         return jsonify({'error': 'Missing parameters'}), 400
         
     conn = get_db_connection()
     model = conn.execute('SELECT * FROM ai_models WHERE id = ?', (model_id,)).fetchone()
-    conn.close()
     
     if not model:
+        conn.close()
         return jsonify({'error': 'Model not found'}), 404
         
     model_config = {
@@ -1129,15 +1224,97 @@ def ai_analysis_chat_stream():
     }
     
     messages = []
-    if history:
-        try:
-            messages = json.loads(history)
-        except:
-            pass
+    # If conversation_id is provided, load history
+    if conversation_id and conversation_id != 'null':
+        rows = conn.execute('SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id ASC', (conversation_id,)).fetchall()
+        for row in rows:
+            # We skip tool calls for LLM context to save tokens, or we could include them if needed.
+            # For now, simplistic approach:
+            messages.append({"role": row['role'], "content": row['content'] or ""})
+    else:
+        # Create new conversation
+        cur = conn.execute('INSERT INTO ai_conversations (user_id, title, model_id) VALUES (?, ?, ?)',
+                           (session['user_id'], message[:20], model_id))
+        conversation_id = cur.lastrowid
+        conn.commit()
+    
+    conn.close()
             
     messages.append({"role": "user", "content": message})
     
-    return Response(stream_with_context(stream_chat_with_data(model_config, messages)), mimetype='text/event-stream')
+    return Response(stream_with_context(stream_chat_wrapper(model_config, messages, conversation_id, message)), mimetype='text/event-stream')
+
+@app.route('/api/ai/conversations', methods=['GET', 'POST'])
+def ai_conversations():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    if request.method == 'GET':
+        rows = conn.execute('''
+            SELECT id, title, model_id, datetime(created_at, 'localtime') as created_at 
+            FROM ai_conversations 
+            WHERE user_id = ? 
+            ORDER BY updated_at DESC
+        ''', (session['user_id'],)).fetchall()
+        conn.close()
+        return jsonify([dict(row) for row in rows])
+        
+    elif request.method == 'POST':
+        data = request.get_json() or {}
+        title = data.get('title', 'New Chat')
+        model_id = data.get('model_id')
+        
+        cur = conn.execute('INSERT INTO ai_conversations (user_id, title, model_id) VALUES (?, ?, ?)',
+                           (session['user_id'], title, model_id))
+        conn.commit()
+        new_id = cur.lastrowid
+        conn.close()
+        return jsonify({'id': new_id})
+
+@app.route('/api/ai/conversations/<int:id>', methods=['DELETE', 'PATCH'])
+def ai_conversation_item(id):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    conn = get_db_connection()
+    if request.method == 'DELETE':
+        conn.execute('DELETE FROM ai_conversations WHERE id = ? AND user_id = ?', (id, session['user_id']))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+        
+    elif request.method == 'PATCH':
+        data = request.get_json() or {}
+        title = data.get('title')
+        if title:
+            conn.execute('UPDATE ai_conversations SET title = ? WHERE id = ? AND user_id = ?', 
+                         (title, id, session['user_id']))
+            conn.commit()
+        conn.close()
+        return jsonify({'success': True})
+
+@app.route('/api/ai/conversations/<int:id>/messages')
+def ai_conversation_messages(id):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    conn = get_db_connection()
+    # Verify ownership
+    conv = conn.execute('SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?', (id, session['user_id'])).fetchone()
+    if not conv:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+        
+    rows = conn.execute('''
+        SELECT id, role, content, meta_info, datetime(created_at, 'localtime') as created_at 
+        FROM ai_messages 
+        WHERE conversation_id = ? 
+        ORDER BY id ASC
+    ''', (id,)).fetchall()
+    conn.close()
+    
+    return jsonify([dict(row) for row in rows])
 
 # --- Data Screen Routes ---
 
@@ -1321,5 +1498,59 @@ def launch_visual_sniffer():
     except Exception as e:
         return jsonify({'error': f'Failed to launch: {str(e)}'}), 500
 
+@app.route('/sniffer/closed', methods=['POST'])
+def sniffer_closed():
+    try:
+        data = request.get_json() or {}
+        url = data.get('url')
+        headers = data.get('headers')
+        updated = False
+        if url and headers:
+            domain = extract_domain(url)
+            conn = get_db_connection()
+            try:
+                existing = conn.execute("SELECT id FROM crawling_rules WHERE domain = ?", (domain,)).fetchone()
+                if existing:
+                    conn.execute('''
+                        UPDATE crawling_rules SET request_headers = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?
+                    ''', (parse_headers_to_json(headers), existing['id']))
+                    conn.commit()
+                    updated = True
+            finally:
+                conn.close()
+        sniffer_signal['ts'] = time.time()
+        return jsonify({'ok': True, 'updated': updated, 'ts': sniffer_signal['ts']})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/refresh_signal')
+def api_refresh_signal():
+    return jsonify({'ts': sniffer_signal['ts']})
+
+@app.route('/rules/refresh_headers/<int:rule_id>', methods=['POST'])
+def refresh_rule_headers(rule_id):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = get_db_connection()
+    try:
+        rule = conn.execute('SELECT * FROM crawling_rules WHERE id = ?', (rule_id,)).fetchone()
+        if not rule:
+            return jsonify({'error': 'Rule not found'}), 404
+        url_pattern = rule['url_pattern']
+        current_headers = rule['request_headers']
+        result, error = sniffer.sniff_page(url_pattern, current_headers)
+        if error:
+            return jsonify({'error': error}), 500
+        new_headers = result.get('request_headers', '{}')
+        conn.execute('UPDATE crawling_rules SET request_headers = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?', (new_headers, rule_id))
+        conn.commit()
+        return jsonify({'message': 'Headers refreshed', 'request_headers': new_headers})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+sniffer_signal = {'ts': 0}
