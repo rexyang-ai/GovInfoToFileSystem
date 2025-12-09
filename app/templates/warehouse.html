@@ -63,6 +63,7 @@
                         <a href="{{ item.url }}" target="_blank" class="btn btn-sm">查看</a>
                         <button class="btn btn-sm btn-success" style="margin-left: 4px;" data-id="{{ item.id }}" onclick="startDeepCrawl(this.dataset.id)">采集</button>
                         <button class="btn btn-sm btn-info" style="margin-left: 4px;" data-url="{{ item.url }}" onclick="startSniff(this.dataset.url)">嗅探</button>
+                        <button class="btn btn-sm btn-primary" style="margin-left: 4px; background-color: #6610f2; border-color: #6610f2;" data-url="{{ item.url }}" onclick="launchVisualSniffer(this.dataset.url)" title="启动桌面可视化嗅探器">可视化</button>
                     </td>
                 </tr>
                 {% else %}
@@ -171,6 +172,26 @@
     
     function closeModal() {
         modal.classList.remove('show');
+    }
+
+    function launchVisualSniffer(url) {
+        showToast('正在启动可视化嗅探器...', 'info');
+        fetch("{{ url_for('launch_visual_sniffer') }}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url: url })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showToast('启动失败: ' + data.error, 'error');
+            } else {
+                showToast(data.message, 'success');
+            }
+        })
+        .catch(error => {
+            showToast('请求错误: ' + error, 'error');
+        });
     }
     
     function startSniff(url) {

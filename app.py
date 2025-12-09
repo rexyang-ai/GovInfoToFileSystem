@@ -16,6 +16,8 @@ import threading
 import uuid
 import time
 from urllib.parse import urlparse
+import subprocess
+import sys
 
 # Global dictionary to store crawl tasks
 crawl_tasks = {}
@@ -553,7 +555,14 @@ def sniff():
 
 @app.route('/rule/save', methods=['POST'])
 def save_rule():
-    if 'user_id' not in session:
+    # Allow session auth OR internal token auth
+    is_auth = 'user_id' in session
+    if not is_auth:
+        token = request.headers.get('X-Internal-Token')
+        if token == 'sniffer-secret-123':
+            is_auth = True
+            
+    if not is_auth:
         return jsonify({'error': 'Unauthorized'}), 401
         
     data = request.get_json()
@@ -1291,6 +1300,26 @@ def screen_heatmap():
         return jsonify(result)
     finally:
         conn.close()
+
+@app.route('/launch_visual_sniffer', methods=['POST'])
+def launch_visual_sniffer():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+        
+    try:
+        data = request.get_json() or {}
+        url = data.get('url', '')
+        
+        # Launch the visual sniffer as a separate process
+        # Use python from current environment
+        cmd = [sys.executable, 'sniffer_tool/main.py']
+        if url:
+            cmd.append(url)
+            
+        subprocess.Popen(cmd, cwd=os.getcwd())
+        return jsonify({'message': 'Visual Sniffer launched on server desktop'})
+    except Exception as e:
+        return jsonify({'error': f'Failed to launch: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

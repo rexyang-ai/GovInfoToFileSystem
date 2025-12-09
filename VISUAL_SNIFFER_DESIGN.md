@@ -71,16 +71,21 @@ graph TD
 
 ## 4. Implementation Steps
 
-### Phase 1: Prototype (Current Task)
-1.  **Setup PyQt6 Environment**: Create `sniffer_tool` directory.
-2.  **Browser Window**: Implement `QWebEngineView` with basic navigation.
-3.  **Inspector JS**: Develop the JS logic to highlight and calculate XPath.
-4.  **Python-JS Bridge**: Receive selection data in Python and print it.
-5.  **UI Side Panel**: Display the selected XPath/Content.
+### Phase 1: Prototype (Completed)
+- [x] Basic PyQt6 window with QWebEngineView.
+- [x] Bi-directional communication (Python <-> JS) using QWebChannel.
+- [x] Inspector JS script to highlight elements on hover and capture XPath on click.
+- [x] Network interceptor to log requests.
+- [x] Basic UI to display selected XPath and Network log.
+- [x] **AMH (Anti-Missing-Handler) Stability Testing**:
+    - [x] Real-time validation of generated XPaths.
+    - [x] Match count display with visual indicators (Green/Red).
+- [x] **Hybrid API/DOM Collection Support**:
+    - [x] Automatic detection of JSON/API requests.
+    - [x] Dedicated UI list for potential API sources.
+    - [x] "Use Selected API" feature to switch collection mode.
 
-### Phase 2: Integration
-1.  **Save to DB**: Add "Save Rule" button to post data to the Flask API.
-2.  **Network Monitor**: Capture and display background API requests.
+### Phase 2: Integration & Refinement (Next Steps)
 
 ## 5. User Workflow
 1.  User runs `python sniffer_tool/main.py`.

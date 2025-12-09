@@ -5,20 +5,83 @@ import json
 def fetch_content(url, rule):
     """
     Fetches and parses content from a URL using a given rule.
-    
-    Args:
-        url (str): The URL to crawl.
-        rule (dict): The rule dictionary containing 'title_xpath', 'content_xpath', 'request_headers'.
-        
-    Returns:
-        dict: {
-            'success': bool,
-            'title': str,
-            'content': str,
-            'html_content': str,
-            'error': str (optional)
-        }
+    Supports:
+    - Standard Requests + LXML (default)
+    - API Mode (if content_xpath starts with 'API:')
+    - DOM Mode with Playwright (if content_xpath starts with 'DOM:')
     """
+    content_xpath = rule.get('content_xpath', '')
+    
+    # --- Mode 1: API Collection ---
+    if content_xpath and content_xpath.startswith('API:'):
+        api_url = content_xpath[4:]
+        try:
+            headers = {}
+            if rule.get('request_headers'):
+                try: headers = json.loads(rule['request_headers'])
+                except: pass
+            
+            response = requests.get(api_url, headers=headers, timeout=15)
+            return {
+                'success': True,
+                'title': 'API Result',
+                'content': response.text,
+                'html_content': response.text
+            }
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    # --- Mode 2: DOM Collection (Playwright) ---
+    elif content_xpath and content_xpath.startswith('DOM:'):
+        target_xpath = content_xpath[4:]
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                
+                # Set headers
+                if rule.get('request_headers'):
+                    try: 
+                        headers = json.loads(rule['request_headers'])
+                        page.set_extra_http_headers(headers)
+                    except: pass
+                
+                page.goto(url, timeout=30000)
+                try:
+                    page.wait_for_load_state('networkidle', timeout=10000)
+                except:
+                    pass # Continue if networkidle times out
+                
+                title = page.title()
+                content = ""
+                html_content = page.content()
+                
+                if target_xpath:
+                    try:
+                        # Wait for selector
+                        page.wait_for_selector(target_xpath, timeout=5000)
+                        element = page.locator(target_xpath).first
+                        content = element.inner_text()
+                    except:
+                        content = "Element not found or timeout"
+                else:
+                    content = page.inner_text('body')
+
+                browser.close()
+                
+                return {
+                    'success': True,
+                    'title': title,
+                    'content': content,
+                    'html_content': html_content
+                }
+        except ImportError:
+            return {'success': False, 'error': "Playwright not installed. Please run: pip install playwright && playwright install"}
+        except Exception as e:
+            return {'success': False, 'error': f"Playwright Error: {str(e)}"}
+
+    # --- Mode 3: Standard Requests + LXML ---
     try:
         headers = {}
         if rule.get('request_headers'):
