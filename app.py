@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, Response, stream_with_context
 from openai import OpenAI
 import httpx
-from app.analysis_agent import stream_chat_with_data
+from app.analysis_agent import stream_chat_with_data, calculate_tokens
 from app.crawler_manager import CrawlerManager
 from app.database.db import get_db_connection
 import dify_baidu_crawler
@@ -21,41 +21,43 @@ import sys
 import csv
 import io
 
-# Global dictionary to store crawl tasks
+# 全局字典用于存储采集任务
 crawl_tasks = {}
+# 嗅探器信号，用于前端轮询状态更新
+sniffer_signal = {'ts': 0}
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
 
 def search_task_runner(task_id, selected_sources, keyword, max_pages, max_items):
     """
-    Background task to run the crawler and update progress.
+    后台任务：运行采集器并更新进度。
     """
     try:
         crawl_tasks[task_id]['status'] = 'running'
         results = []
         
-        # Helper to update progress
+        # 辅助函数：更新进度
         def progress_callback(current_count, limit_items, current_page, limit_pages):
-            # This callback comes from a single source execution.
-            # Since we might run multiple sources in parallel, this simple callback 
-            # might overwrite progress from other sources if not careful.
-            # For now, we'll just sum up results or update "last activity".
-            # A better way: accumulate counts in the task object.
-            # But execute_source_with_config is running in this thread (if sequential) 
-            # or sub-threads (if parallel).
+            # 此回调来自单个源的执行。
+            # 由于我们可能并行运行多个源，这个简单的回调
+            # 如果不小心可能会覆盖其他源的进度。
+            # 目前，我们只是汇总结果或更新“最后活动”。
+            # 更好的方法：在任务对象中累加计数。
+            # 但 execute_source_with_config 在此线程（如果是顺序执行）
+            # 或子线程（如果是并行执行）中运行。
             
-            # If we run sources sequentially in this background task:
+            # 如果我们在后台任务中顺序运行源：
             crawl_tasks[task_id]['progress'] = f"正在采集... (当前页: {current_page}/{limit_pages}, 已采集: {len(results) + current_count})"
             crawl_tasks[task_id]['current_count'] = len(results) + current_count
-            # Note: This count is slightly off because 'results' is from previous sources, 
-            # and 'current_count' is from current source.
+            # 注意：此计数略有偏差，因为 'results' 来自之前的源，
+            # 而 'current_count' 来自当前源。
             pass
 
-        # We need a way to aggregate progress if we run multiple sources.
-        # For simplicity, let's run sources SEQUENTIALLY in this background thread 
-        # so we can accurately report progress.
+        # 我们需要一种方法来聚合进度（如果我们运行多个源）。
+        # 为了简单起见，让我们在这个后台线程中顺序运行源，
+        # 这样我们可以准确地报告进度。
         
         conn = get_db_connection()
-        crawler_manager = CrawlerManager(None) # Connection not needed for execute_source_with_config if we pass config
+        crawler_manager = CrawlerManager(None) # 如果我们传递配置，execute_source_with_config 不需要连接
         
         total_sources = len(selected_sources)
         
@@ -69,7 +71,7 @@ def search_task_runner(task_id, selected_sources, keyword, max_pages, max_items)
             
             crawl_tasks[task_id]['progress'] = f"正在采集 [{source_name}] ({idx+1}/{total_sources})..."
             
-            # Define a specific callback for this source to update global task state
+            # 为此源定义特定的回调以更新全局任务状态
             def specific_callback(curr_c, max_c, curr_p, max_p, current_results=None):
                 total_so_far = len(results) + curr_c
                 crawl_tasks[task_id]['current_count'] = total_so_far
@@ -77,7 +79,7 @@ def search_task_runner(task_id, selected_sources, keyword, max_pages, max_items)
                 if current_results:
                      crawl_tasks[task_id]['results'] = results + current_results
             
-            # Run crawler
+            # 运行采集器
             res = crawler_manager.execute_source_with_config(
                 source_config, 
                 keyword, 
@@ -104,24 +106,24 @@ def search_task_runner(task_id, selected_sources, keyword, max_pages, max_items)
 
 def parse_headers_to_json(header_str):
     """
-    Parses a header string (JSON or raw text) into a JSON string.
-    Supports raw copy-paste from browser DevTools (Key: Value or Key:\\nValue).
+    将请求头字符串（JSON 或原始文本）解析为 JSON 字符串。
+    支持从浏览器开发者工具直接复制粘贴（Key: Value 或 Key:\\nValue）。
     """
     if not header_str:
         return "{}"
     
     header_str = header_str.strip()
     
-    # 1. Try to parse as JSON first
+    # 1. 首先尝试解析为 JSON
     try:
-        # If it's already JSON, ensure it's a dict
+        # 如果已经是 JSON，确保它是字典
         parsed = json.loads(header_str)
         if isinstance(parsed, dict):
             return json.dumps(parsed) 
     except:
         pass
         
-    # 2. Parse as raw text
+    # 2. 解析为原始文本
     headers = {}
     lines = header_str.split('\n')
     current_key = None
@@ -132,27 +134,27 @@ def parse_headers_to_json(header_str):
             continue
             
         if line.endswith(':'):
-             # Case: "Key:" on one line, value on next
+             # 情况："Key:" 在一行，值在下一行
              current_key = line[:-1].strip()
         elif ':' in line:
-             # Case: "Key: Value" on same line
-             # If we have a current_key pending, it means the previous key had no value or was malformed.
-             # We'll just overwrite/ignore the previous key for now or assume empty string?
-             # Let's assume if we see a new Key: Value, the previous pending key is done.
+             # 情况："Key: Value" 在同一行
+             # 如果我们有一个待处理的 current_key，这意味着上一个键没有值或是格式错误的。
+             # 我们暂时覆盖/忽略上一个键，或者假设为空字符串？
+             # 让我们假设如果我们看到新的 Key: Value，上一个待处理的键已完成。
              
-             # Handle "Key: Value"
+             # 处理 "Key: Value"
              parts = line.split(':', 1)
              key = parts[0].strip()
              value = parts[1].strip()
              headers[key] = value
              current_key = None 
         else:
-             # No colon. Must be value for current_key
+             # 没有冒号。必须是 current_key 的值
              if current_key:
                  headers[current_key] = line
                  current_key = None
              else:
-                 # No current key? Skip or handle specific cases
+                 # 没有当前键？跳过或处理特定情况
                  pass
                  
     return json.dumps(headers)
@@ -167,7 +169,7 @@ def extract_domain(url):
         return url
 
 app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
-app.secret_key = 'super_secret_key_for_demo_only'  # Change for prod
+app.secret_key = 'super_secret_key_for_demo_only'  # 生产环境请修改
 
 def extract_domain(url):
     if not url:
@@ -355,7 +357,7 @@ def search():
     if not keyword:
         return jsonify({'error': 'Keyword is required'}), 400
         
-    # Create a Task
+    # 创建任务
     task_id = str(uuid.uuid4())
     crawl_tasks[task_id] = {
         'status': 'initializing',
@@ -365,7 +367,7 @@ def search():
         'results': []
     }
     
-    # Start background task
+    # 启动后台任务
     executor.submit(search_task_runner, task_id, selected_sources, keyword, max_pages, max_items)
     
     return jsonify({'task_id': task_id})
@@ -409,11 +411,11 @@ def save_data():
     update_count = 0
     successful_urls = []
     
-    # We will iterate through items and try to save them one by one.
-    # To avoid partial failures blocking others, we'll try/except inside the loop.
-    # Note: SQLite transaction behavior. If we want partial success, we can just commit at the end, 
-    # but if an error occurs (like unique constraint), we should handle it.
-    # Since we check for existence first, unique constraint on URL shouldn't trigger unless race condition.
+    # 我们将遍历项目并尝试逐个保存。
+    # 为了避免部分失败阻塞其他项目，我们在循环内部使用 try/except。
+    # 注意：SQLite 事务行为。如果我们想要部分成功，我们可以在最后提交，
+    # 但如果发生错误（如唯一约束），我们应该处理它。
+    # 因为我们先检查是否存在，所以除非有竞争条件，否则 URL 上的唯一约束不应触发。
     
     try:
         for item in items:
@@ -422,7 +424,7 @@ def save_data():
                 if not url:
                     continue
                     
-                # Check if exists
+                # 检查是否存在
                 existing = conn.execute('SELECT id FROM crawled_data WHERE url = ?', (url,)).fetchone()
                 
                 if existing:
@@ -443,7 +445,7 @@ def save_data():
                 
             except Exception as e:
                 print(f"Error saving item {item.get('url')}: {e}")
-                # Continue to next item
+                # 继续处理下一个项目
                 continue
                 
         conn.commit()
@@ -471,7 +473,7 @@ def warehouse():
     per_page = 20
     offset = (page - 1) * per_page
     
-    # Base query
+    # 基础查询
     where_clause = " WHERE 1=1"
     params = []
     
@@ -485,11 +487,11 @@ def warehouse():
         
     conn = get_db_connection()
     
-    # Count total
+    # 统计总数
     count_query = "SELECT COUNT(*) FROM crawled_data" + where_clause
     total = conn.execute(count_query, params).fetchone()[0]
     
-    # Fetch paginated items
+    # 获取分页数据
     query = "SELECT id, title, url, summary, cover_url, search_keyword, datetime(created_at,'localtime') AS created_at FROM crawled_data" + where_clause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([per_page, offset])
     rows = conn.execute(query, params).fetchall()
@@ -525,7 +527,7 @@ def sniff():
     if not url:
         return jsonify({'error': 'URL is required'}), 400
         
-    # Attempt to find matching source for headers
+    # 尝试查找匹配的请求头源
     conn = get_db_connection()
     sources = conn.execute("SELECT url, headers FROM crawl_sources").fetchall()
     conn.close()
@@ -537,21 +539,21 @@ def sniff():
     for s in sources:
         s_url = s['url']
         s_domain = extract_domain(s_url)
-        # Check if domains match (exact or subdomain)
+        # 检查域名是否匹配（完全匹配或子域名）
         if target_domain == s_domain or target_domain.endswith('.' + s_domain) or s_domain.endswith('.' + target_domain):
              if s['headers']:
                  custom_headers = s['headers']
                  matched_source_url = s_url
                  break
     
-    # 1. Sniff the page
+    # 1. 嗅探页面
     result, error = sniffer.sniff_page(url, custom_headers)
     
     if error:
         return jsonify({'error': error}), 500
         
-    # 2. Return data for confirmation (DO NOT SAVE YET)
-    # Use final_url from sniffer result if available (handles redirects)
+    # 2. 返回数据以供确认（尚未保存）
+    # 如果可用，使用嗅探结果中的 final_url（处理重定向）
     final_url = result.get('final_url', url)
     domain = extract_domain(final_url)
     
@@ -564,7 +566,7 @@ def sniff():
 
 @app.route('/rule/save', methods=['POST'])
 def save_rule():
-    # Allow session auth OR internal token auth
+    # 允许会话验证或内部 Token 验证
     is_auth = 'user_id' in session
     if not is_auth:
         token = request.headers.get('X-Internal-Token')
@@ -587,7 +589,7 @@ def save_rule():
     domain = extract_domain(url)
     conn = get_db_connection()
     try:
-        # Check if rule exists for this domain
+        # 检查此域名是否存在规则
         existing = conn.execute("SELECT id FROM crawling_rules WHERE domain = ?", (domain,)).fetchone()
         
         if existing:
@@ -610,6 +612,7 @@ def save_rule():
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
+
 
 @app.route('/rules')
 def rules():
@@ -664,6 +667,8 @@ def add_rule():
     url_pattern = data.get('url_pattern')
     title_xpath = data.get('title_xpath')
     content_xpath = data.get('content_xpath')
+    publish_time_xpath = data.get('publish_time_xpath')
+    source_xpath = data.get('source_xpath')
     request_headers = parse_headers_to_json(data.get('request_headers'))
     
     if not rule_name or not url_pattern:
@@ -674,9 +679,9 @@ def add_rule():
     conn = get_db_connection()
     try:
         conn.execute('''
-            INSERT INTO crawling_rules (rule_name, domain, url_pattern, title_xpath, content_xpath, request_headers)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (rule_name, domain, url_pattern, title_xpath, content_xpath, request_headers))
+            INSERT INTO crawling_rules (rule_name, domain, url_pattern, title_xpath, content_xpath, publish_time_xpath, source_xpath, request_headers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (rule_name, domain, url_pattern, title_xpath, content_xpath, publish_time_xpath, source_xpath, request_headers))
         conn.commit()
         return jsonify({'message': 'Rule added successfully'})
     except Exception as e:
@@ -695,6 +700,8 @@ def update_rule(rule_id):
     url_pattern = data.get('url_pattern')
     title_xpath = data.get('title_xpath')
     content_xpath = data.get('content_xpath')
+    publish_time_xpath = data.get('publish_time_xpath')
+    source_xpath = data.get('source_xpath')
     request_headers = parse_headers_to_json(data.get('request_headers'))
     
     if not rule_name or not url_pattern:
@@ -706,9 +713,9 @@ def update_rule(rule_id):
     try:
         conn.execute('''
             UPDATE crawling_rules 
-            SET rule_name = ?, domain = ?, url_pattern = ?, title_xpath = ?, content_xpath = ?, request_headers = ?
+            SET rule_name = ?, domain = ?, url_pattern = ?, title_xpath = ?, content_xpath = ?, publish_time_xpath = ?, source_xpath = ?, request_headers = ?
             WHERE id = ?
-        ''', (rule_name, domain, url_pattern, title_xpath, content_xpath, request_headers, rule_id))
+        ''', (rule_name, domain, url_pattern, title_xpath, content_xpath, publish_time_xpath, source_xpath, request_headers, rule_id))
         conn.commit()
         return jsonify({'message': 'Rule updated successfully'})
     except Exception as e:
@@ -747,9 +754,9 @@ def copy_rule(rule_id):
         new_rule_name = f"{rule['rule_name']} (副本)"
         
         conn.execute('''
-            INSERT INTO crawling_rules (rule_name, domain, url_pattern, title_xpath, content_xpath, request_headers)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (new_rule_name, rule['domain'], rule['url_pattern'], rule['title_xpath'], rule['content_xpath'], rule['request_headers']))
+            INSERT INTO crawling_rules (rule_name, domain, url_pattern, title_xpath, content_xpath, publish_time_xpath, source_xpath, request_headers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (new_rule_name, rule['domain'], rule['url_pattern'], rule['title_xpath'], rule['content_xpath'], rule.get('publish_time_xpath'), rule.get('source_xpath'), rule['request_headers']))
         conn.commit()
         return jsonify({'message': 'Rule copied successfully'})
     except Exception as e:
@@ -760,7 +767,7 @@ def copy_rule(rule_id):
 
 def run_deep_crawl_task(task_id, items):
     """
-    Background task to perform deep crawling.
+    后台任务：执行深度采集。
     """
     task = crawl_tasks[task_id]
     conn = get_db_connection()
@@ -774,7 +781,7 @@ def run_deep_crawl_task(task_id, items):
             url = item['url']
             domain = extract_domain(url)
             
-            # Find rule
+            # 查找规则
             rule = conn.execute('SELECT * FROM crawling_rules WHERE domain = ?', (domain,)).fetchone()
             
             if not rule:
@@ -782,20 +789,20 @@ def run_deep_crawl_task(task_id, items):
                 task['failed'] += 1
                 continue
                 
-            # Check if already crawled (optional, but good for idempotency)
-            # For now, we allow re-crawling
+            # 检查是否已采集（可选，但有利于幂等性）
+            # 目前，我们允许重新采集
             
-            # Crawl
+            # 采集
             result = deep_crawler.fetch_content(url, dict(rule))
             
             if result['success']:
                 try:
-                    # Save to content_details
-                    # Use INSERT OR REPLACE to update if exists
+                    # 保存到 content_details
+                    # 使用 INSERT OR REPLACE 更新（如果存在）
                     conn.execute('''
-                        INSERT OR REPLACE INTO content_details (source_url, title, content, html_content, rule_id)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (url, result['title'], result['content'], result['html_content'], rule['id']))
+                        INSERT OR REPLACE INTO content_details (source_url, title, content, html_content, publish_time, source, rule_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (url, result['title'], result['content'], result['html_content'], result.get('publish_time'), result.get('source'), rule['id']))
                     conn.commit()
                     
                     task['logs'].append(f"成功: {url}")
@@ -807,7 +814,8 @@ def run_deep_crawl_task(task_id, items):
                 task['logs'].append(f"采集失败: {url} ({result.get('error')})")
                 task['failed'] += 1
             
-            # Update progress percentage
+            # 更新进度百分比
+
             # task['progress'] = int((task['current'] / total) * 100)
             
     except Exception as e:
@@ -829,7 +837,7 @@ def start_crawl():
         return jsonify({'error': 'No items selected'}), 400
         
     conn = get_db_connection()
-    # Fetch URLs for these IDs
+    # 获取这些 ID 的 URL
     placeholders = ','.join('?' for _ in ids)
     items = conn.execute(f'SELECT id, url, title FROM crawled_data WHERE id IN ({placeholders})', ids).fetchall()
     conn.close()
@@ -848,7 +856,7 @@ def start_crawl():
         'created_at': time.time()
     }
     
-    # Start background thread
+    # 启动后台线程
     thread = threading.Thread(target=run_deep_crawl_task, args=(task_id, items))
     thread.start()
     
@@ -886,7 +894,7 @@ def content_details():
     count_query = f"SELECT COUNT(*) FROM content_details {where_clause}"
     total = conn.execute(count_query, params).fetchone()[0]
     
-    query = f"SELECT id, title, source_url, content, html_content, datetime(crawled_at,'localtime') AS crawled_at FROM content_details {where_clause} ORDER BY crawled_at DESC LIMIT ? OFFSET ?"
+    query = f"SELECT id, title, source_url, content, html_content, publish_time, source, datetime(crawled_at,'localtime') AS crawled_at FROM content_details {where_clause} ORDER BY crawled_at DESC LIMIT ? OFFSET ?"
     params.extend([per_page, offset])
     
     items = conn.execute(query, params).fetchall()
@@ -961,22 +969,22 @@ def export_content_details():
                 where_clause = "WHERE title LIKE ? OR source_url LIKE ?"
                 params = [f'%{keyword}%', f'%{keyword}%']
                 
-            query = f"SELECT id, title, source_url, content, datetime(crawled_at,'localtime') AS crawled_at FROM content_details {where_clause} ORDER BY crawled_at DESC"
+            query = f"SELECT id, title, source_url, content, publish_time, source, datetime(crawled_at,'localtime') AS crawled_at FROM content_details {where_clause} ORDER BY crawled_at DESC"
             
             cursor = conn.execute(query, params)
             
             data = io.StringIO()
             w = csv.writer(data)
             
-            # Write header (with BOM for Excel compatibility)
+            # 写入表头（带 BOM 以兼容 Excel）
             data.write('\ufeff')
-            w.writerow(('ID', '标题', '源链接', '采集时间', '内容'))
+            w.writerow(('ID', '标题', '源链接', '发布时间', '来源', '采集时间', '内容'))
             yield data.getvalue()
             data.seek(0)
             data.truncate(0)
             
             for row in cursor:
-                w.writerow((row['id'], row['title'], row['source_url'], row['crawled_at'], row['content']))
+                w.writerow((row['id'], row['title'], row['source_url'], row['publish_time'], row['source'], row['crawled_at'], row['content']))
                 yield data.getvalue()
                 data.seek(0)
                 data.truncate(0)
@@ -986,7 +994,7 @@ def export_content_details():
     return Response(stream_with_context(generate()), mimetype='text/csv', 
                     headers={"Content-Disposition": f"attachment; filename=content_details_export_{int(time.time())}.csv"})
 
-# AI Model Management Routes
+# AI 模型管理路由
 
 @app.route('/ai_models')
 def ai_models_index():
@@ -1065,7 +1073,7 @@ def ai_model_stats():
         return jsonify({'error': 'Unauthorized'}), 401
     
     conn = get_db_connection()
-    # Calculate total tokens
+    # 计算总 Token
     result = conn.execute('SELECT SUM(tokens_used) as total FROM token_consumption').fetchone()
     total = result['total'] if result and result['total'] else 0
     conn.close()
@@ -1092,7 +1100,7 @@ def test_ai_model_sse():
     def generate():
         try:
             api_base = model['api_base']
-            # OpenAI client expects base_url without /chat/completions
+            # OpenAI 客户端期望 base_url 不带 /chat/completions
             if api_base.endswith('/chat/completions'):
                 api_base = api_base.replace('/chat/completions', '')
             if api_base.endswith('/'):
@@ -1122,9 +1130,9 @@ def test_ai_model_sse():
                         collected_content += content
                         yield f"data: {json.dumps({'content': content})}\n\n"
                             
-            # Record Token Usage
-            input_tokens = len(message) 
-            output_tokens = len(collected_content)
+            # 记录 Token 使用情况
+            input_tokens = calculate_tokens(message) 
+            output_tokens = calculate_tokens(collected_content)
             total_tokens = input_tokens + output_tokens 
             
             try:
@@ -1154,24 +1162,24 @@ def ai_analysis():
     
     return render_template('ai_analysis.html', models=[dict(m) for m in models], username=session.get('username'))
 
-def stream_chat_wrapper(model_config, messages, conversation_id, user_message_content):
+def stream_chat_wrapper(model_config, messages, conversation_id, user_message_content, model_id):
     conn = get_db_connection()
     
-    # Save User Message
+    # 保存用户消息
     conn.execute('INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)',
                  (conversation_id, 'user', user_message_content))
     conn.commit()
     conn.close()
     
-    # Helper to save assistant message later
+    # 辅助变量：用于稍后保存助手消息
     full_content = []
     chart_options = None
     
     try:
-        # We need to yield from the original generator
+        # 我们需要从原始生成器 yield
         for chunk in stream_chat_with_data(model_config, messages):
             yield chunk
-            # Parse chunk to accumulate
+            # 解析分块以进行累积
             if chunk.startswith("data: "):
                 try:
                     data = json.loads(chunk[6:])
@@ -1179,12 +1187,26 @@ def stream_chat_wrapper(model_config, messages, conversation_id, user_message_co
                         full_content.append(data['content'])
                     elif data['type'] == 'chart':
                         chart_options = data['options']
+                    elif data['type'] == 'usage':
+                        # 保存 Token 使用情况
+                        input_tokens = data.get('input_tokens', 0)
+                        output_tokens = data.get('output_tokens', 0)
+                        total_tokens = input_tokens + output_tokens
+                        
+                        try:
+                            db = get_db_connection()
+                            db.execute('INSERT INTO token_consumption (model_id, tokens_used, request_type) VALUES (?, ?, ?)',
+                                      (model_id, total_tokens, 'analysis_chat'))
+                            db.commit()
+                            db.close()
+                        except Exception as e:
+                            print(f"Failed to save token stats: {e}")
                 except:
                     pass
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
     finally:
-        # Save Assistant Message
+        # 保存助手消息
         conn = get_db_connection()
         final_content = "".join(full_content)
         meta_info = json.dumps({'chart_options': chart_options}) if chart_options else None
@@ -1193,7 +1215,7 @@ def stream_chat_wrapper(model_config, messages, conversation_id, user_message_co
             conn.execute('INSERT INTO ai_messages (conversation_id, role, content, meta_info) VALUES (?, ?, ?, ?)',
                         (conversation_id, 'assistant', final_content, meta_info))
             
-            # Update conversation timestamp
+            # 更新对话时间戳
             conn.execute('UPDATE ai_conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', (conversation_id,))
             conn.commit()
         conn.close()
@@ -1224,15 +1246,15 @@ def ai_analysis_chat_stream():
     }
     
     messages = []
-    # If conversation_id is provided, load history
+    # 如果提供了 conversation_id，则加载历史记录
     if conversation_id and conversation_id != 'null':
         rows = conn.execute('SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id ASC', (conversation_id,)).fetchall()
         for row in rows:
-            # We skip tool calls for LLM context to save tokens, or we could include them if needed.
-            # For now, simplistic approach:
+            # 我们跳过工具调用以节省 LLM 上下文 Token，或者如果需要可以包含它们。
+            # 目前，采用简单的方法：
             messages.append({"role": row['role'], "content": row['content'] or ""})
     else:
-        # Create new conversation
+        # 创建新对话
         cur = conn.execute('INSERT INTO ai_conversations (user_id, title, model_id) VALUES (?, ?, ?)',
                            (session['user_id'], message[:20], model_id))
         conversation_id = cur.lastrowid
@@ -1242,7 +1264,7 @@ def ai_analysis_chat_stream():
             
     messages.append({"role": "user", "content": message})
     
-    return Response(stream_with_context(stream_chat_wrapper(model_config, messages, conversation_id, message)), mimetype='text/event-stream')
+    return Response(stream_with_context(stream_chat_wrapper(model_config, messages, conversation_id, message, model_id)), mimetype='text/event-stream')
 
 @app.route('/api/ai/conversations', methods=['GET', 'POST'])
 def ai_conversations():
@@ -1300,7 +1322,7 @@ def ai_conversation_messages(id):
         return jsonify({'error': 'Unauthorized'}), 401
         
     conn = get_db_connection()
-    # Verify ownership
+    # 验证所有权
     conv = conn.execute('SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?', (id, session['user_id'])).fetchone()
     if not conv:
         conn.close()
@@ -1316,7 +1338,7 @@ def ai_conversation_messages(id):
     
     return jsonify([dict(row) for row in rows])
 
-# --- Data Screen Routes ---
+# --- 数据大屏路由 ---
 
 @app.route('/data_screen')
 def data_screen():
@@ -1332,18 +1354,18 @@ def screen_stats():
     conn = get_db_connection()
     
     try:
-        # Total count
+        # 总数
         total = conn.execute('SELECT COUNT(*) FROM content_details').fetchone()[0]
         
-        # Today count
+        # 今日计数
         today = conn.execute("SELECT COUNT(*) FROM content_details WHERE date(crawled_at) = date('now')").fetchone()[0]
         
-        # Risk count (using keyword match)
+        # 风险计数（使用关键字匹配）
         risk_keywords = ['事故', '违规', '处罚', '危险', '警告', '风险', '通报', '整改', '灾害', '预警']
         risk_query = " OR ".join([f"title LIKE '%{k}%'" for k in risk_keywords])
         risk_count = conn.execute(f"SELECT COUNT(*) FROM content_details WHERE {risk_query}").fetchone()[0]
         
-        # Classification (using search_keyword from crawled_data as category proxy)
+        # 分类（使用 crawled_data 中的 search_keyword 作为分类代理）
         classification_rows = conn.execute('''
             SELECT search_keyword, COUNT(*) as count 
             FROM crawled_data 
@@ -1400,7 +1422,7 @@ def screen_latest():
         
         data = []
         for row in rows:
-            # Extract source domain
+            # 提取源域名
             try:
                 domain = urlparse(row['source_url']).netloc
             except:
@@ -1423,7 +1445,7 @@ def screen_keywords():
         
     conn = get_db_connection()
     try:
-        # Get top 5 keywords first
+        # 首先获取前 5 个关键字
         top_keywords_rows = conn.execute('''
             SELECT search_keyword 
             FROM crawled_data 
@@ -1434,9 +1456,9 @@ def screen_keywords():
         ''').fetchall()
         top_keywords = [r['search_keyword'] for r in top_keywords_rows]
         
-        # Get dates
+        # 获取日期
         dates_rows = conn.execute("SELECT DISTINCT date(created_at) as d FROM crawled_data ORDER BY d DESC LIMIT 7").fetchall()
-        dates = [r['d'] for r in dates_rows][::-1] # reverse to be ascending
+        dates = [r['d'] for r in dates_rows][::-1] # 反转以按升序排列
         
         series = []
         for kw in top_keywords:
@@ -1462,7 +1484,7 @@ def screen_heatmap():
     
     conn = get_db_connection()
     try:
-        # Efficient way: fetch all titles and do python counting to avoid 30+ SQL queries
+        # 高效方法：获取所有标题并进行 Python 计数，以避免 30 多次 SQL 查询
         rows = conn.execute("SELECT title, content FROM content_details ORDER BY crawled_at DESC LIMIT 1000").fetchall()
         
         city_counts = {c: 0 for c in cities}
@@ -1487,8 +1509,8 @@ def launch_visual_sniffer():
         data = request.get_json() or {}
         url = data.get('url', '')
         
-        # Launch the visual sniffer as a separate process
-        # Use python from current environment
+        # 将可视化嗅探器作为单独的进程启动
+        # 使用当前环境中的 Python
         cmd = [sys.executable, 'sniffer_tool/main.py']
         if url:
             cmd.append(url)
@@ -1553,4 +1575,3 @@ def refresh_rule_headers(rule_id):
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-sniffer_signal = {'ts': 0}

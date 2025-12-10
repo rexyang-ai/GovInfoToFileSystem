@@ -78,7 +78,7 @@
     </div>
 
     <script>
-        // Update Time
+        // 更新时间
         function updateTime() {
             const now = new Date();
             document.getElementById('currentTime').innerText = now.toLocaleString('zh-CN', { hour12: false });
@@ -86,13 +86,13 @@
         setInterval(updateTime, 1000);
         updateTime();
 
-        // Init Charts
+        // 初始化图表
         const chartClass = echarts.init(document.getElementById('chart-classification'));
         const chartRisk = echarts.init(document.getElementById('chart-risk'));
         const chartMap = echarts.init(document.getElementById('chart-map'));
         const chartTrend = echarts.init(document.getElementById('chart-trend'));
 
-        // Resize handler
+        // 窗口大小调整处理
         window.addEventListener('resize', () => {
             chartClass.resize();
             chartRisk.resize();
@@ -100,8 +100,8 @@
             chartTrend.resize();
         });
 
-        // Load Map Data
-        // Using a public CDN for China Map GeoJSON
+        // 加载地图数据
+        // 使用公共 CDN 获取中国地图 GeoJSON
         $.getJSON('https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json', function(geoJson) {
             echarts.registerMap('china', geoJson);
             initMap();
@@ -146,7 +146,7 @@
                         name: '热度',
                         type: 'heatmap',
                         coordinateSystem: 'geo',
-                        data: [] // To be filled
+                        data: [] // 待填充
                     }
                 ]
             };
@@ -154,15 +154,15 @@
             loadMapData();
         }
 
-        // Data Loading Functions
+        // 数据加载函数
         function loadStats() {
             $.get('/api/screen/stats', function(data) {
-                // Update numbers
+                // 更新数字
                 $('#stat-total').text(data.total_count);
                 $('#stat-today').text(data.today_count);
                 $('#stat-risk').text(data.risk_count);
 
-                // Update Classification Chart (Pie)
+                // 更新分类图表 (饼图)
                 const classOption = {
                     tooltip: { trigger: 'item' },
                     legend: { top: '5%', left: 'center', textStyle: { color: '#fff' } },
@@ -245,9 +245,9 @@
             $.get('/api/screen/latest', function(data) {
                 const tbody = $('#latest-data-body');
                 tbody.empty();
-                // Duplicate data for seamless scrolling if needed, or just list
+                // 如果需要，复制数据以实现无缝滚动，或者仅列出
                 const items = data.data;
-                // If using pure CSS animation, we might need to double the list
+                // 如果使用纯 CSS 动画，我们可能需要将列表加倍
                 const content = items.concat(items).map(item => `
                     <tr>
                         <td title="${item.title}">${item.title}</td>
@@ -259,7 +259,7 @@
             });
         }
         
-        // City Coordinates (Simplified for major cities)
+        // 城市坐标 (简化版，仅包含主要城市)
         const cityCoords = {
             '北京': [116.407526, 39.90403],
             '上海': [121.473701, 31.230416],
@@ -301,8 +301,8 @@
 
         function loadMapData() {
             $.get('/api/screen/heatmap', function(data) {
-                // Prepare heatmap data
-                // ECharts heatmap needs [lng, lat, value]
+                // 准备热力图数据
+                // ECharts 热力图需要 [lng, lat, value] 格式
                 const heatData = [];
                 data.forEach(item => {
                     if (cityCoords[item.name]) {
@@ -322,13 +322,13 @@
             });
         }
 
-        // Initial Load
+        // 初始加载
         loadStats();
         loadRiskData();
         loadTrendData();
         loadLatestData();
 
-        // Refresh Interval
+        // 刷新间隔
         setInterval(() => {
             loadStats();
             loadRiskData();

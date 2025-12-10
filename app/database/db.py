@@ -12,7 +12,7 @@ def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     
-    # Create Users table
+    # 创建用户表
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,7 +21,7 @@ def init_db():
         )
     ''')
     
-    # Create CrawledData table
+    # 创建爬取数据表
     c.execute('''
         CREATE TABLE IF NOT EXISTS crawled_data (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +34,7 @@ def init_db():
         )
     ''')
     
-    # Create CrawlingRules table
+    # 创建爬取规则表
     c.execute('''
         CREATE TABLE IF NOT EXISTS crawling_rules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,7 +48,7 @@ def init_db():
         )
     ''')
     
-    # Create ContentDetails table
+    # 创建内容详情表
     c.execute('''
         CREATE TABLE IF NOT EXISTS content_details (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +62,7 @@ def init_db():
         )
     ''')
 
-    # Create CrawlSources table (New)
+    # 创建爬取源表 (新)
     c.execute('''
         CREATE TABLE IF NOT EXISTS crawl_sources (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,7 +79,7 @@ def init_db():
         )
     ''')
     
-    # Create AI Models table
+    # 创建 AI 模型表
     c.execute('''
         CREATE TABLE IF NOT EXISTS ai_models (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +93,7 @@ def init_db():
         )
     ''')
 
-    # Create Token Consumption table
+    # 创建 Token 消耗表
     c.execute('''
         CREATE TABLE IF NOT EXISTS token_consumption (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +105,7 @@ def init_db():
         )
     ''')
     
-    # Create AI Conversations table
+    # 创建 AI 对话表
     c.execute('''
         CREATE TABLE IF NOT EXISTS ai_conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,7 +119,7 @@ def init_db():
         )
     ''')
 
-    # Create AI Messages table
+    # 创建 AI 消息表
     c.execute('''
         CREATE TABLE IF NOT EXISTS ai_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,15 +132,15 @@ def init_db():
         )
     ''')
     
-    # Check if admin exists
+    # 检查管理员是否存在
     c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
     if not c.fetchone():
         c.execute('INSERT INTO users (username, password) VALUES (?, ?)', ('admin', 'admin888'))
-        print("Admin user created.")
+        print("管理员用户已创建。")
         
     conn.commit()
     conn.close()
-    print("Database initialized.")
+    print("数据库已初始化。")
 
 if __name__ == '__main__':
     init_db()

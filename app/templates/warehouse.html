@@ -2,10 +2,19 @@
 
 {% block content %}
 <div>
-    <h2>数据仓库</h2>
-    <p class="text-muted">管理和查看已保存的历史数据</p>
+    <!-- 1. 栏目名称区 -->
+    <div class="page-header">
+        <div class="page-title">
+            <h2>数据仓库</h2>
+            <p>管理和查看已保存的历史数据</p>
+        </div>
+        <div class="page-actions">
+            <button class="btn" onclick="startBatchCrawl()">批量深度采集</button>
+        </div>
+    </div>
     
-    <div class="filter-bar">
+    <!-- 2. 搜索区 -->
+    <div class="section-filter">
         <form method="GET" action="{{ url_for('warehouse') }}" style="display: flex; gap: 1rem; width: 100%; align-items: flex-end;">
             <div class="filter-group" style="flex: 1;">
                 <label class="form-label">关键字检索</label>
@@ -20,11 +29,13 @@
         </form>
     </div>
 
-    <div style="margin-bottom: 1rem;">
+    <!-- 3. 按钮功能区 (工具栏) - 已合并至顶部 -->
+    <!-- <div class="section-toolbar">
         <button class="btn btn-success" onclick="startBatchCrawl()">批量深度采集</button>
-    </div>
+    </div> -->
 
-    <div class="table-container">
+    <!-- 4. 列表区 -->
+    <div class="section-list">
         <table class="table table-hover">
             <thead>
                 <tr>
@@ -87,8 +98,9 @@
         </table>
     </div>
 
+    <!-- 5. 分页区 -->
     {% if total_pages > 1 %}
-    <div class="pagination">
+    <div class="section-pagination">
         {% if page > 1 %}
         <a href="{{ url_for('warehouse', page=page-1, keyword=request.args.get('keyword', ''), date=request.args.get('date', '')) }}" class="pagination-btn">上一页</a>
         {% else %}

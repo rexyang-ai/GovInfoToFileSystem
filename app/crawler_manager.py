@@ -26,32 +26,32 @@ class CrawlerManager:
         try:
             all_results = []
             
-            # Pagination setup
+            # 分页设置
             pagination_param = source.get('pagination_param')
             pagination_step = int(source.get('pagination_step') or 0)
             start_value = int(source.get('start_value') or 0)
             
-            # If pagination is not configured, force max_pages to 1
+            # 如果未配置分页，强制 max_pages 为 1
             if not pagination_param:
                 max_pages = 1
                 
             for page_idx in range(max_pages):
-                # Stop if we have enough items
+                # 如果已收集足够的项目，则停止
                 if len(all_results) >= max_items:
                     break
                 
-                # Report progress before request (e.g. "Starting page X")
+                # 请求前报告进度（例如“开始第 X 页”）
                 if progress_callback:
                     progress_callback(len(all_results), max_items, page_idx + 1, max_pages, all_results)
                 
-                # 1. Prepare URL
+                # 1. 准备 URL
                 url_template = source['url']
                 if "{keyword}" in url_template:
                     base_url = url_template.replace("{keyword}", urllib.parse.quote(keyword))
                 else:
-                    base_url = url_template # Fallback if no placeholder
+                    base_url = url_template # 如果没有占位符则回退
                 
-                # Append pagination
+                # 追加分页
                 if pagination_param:
                     current_val = start_value + (page_idx * pagination_step)
                     separator = '&' if '?' in base_url else '?'
@@ -59,12 +59,12 @@ class CrawlerManager:
                 else:
                     url = base_url
                 
-                # 2. Prepare Headers
+                # 2. 准备请求头
                 headers = {}
                 if source['headers']:
                     try:
                         raw_headers = json.loads(source['headers'])
-                        # Clean headers to remove leading/trailing whitespace
+                        # 清理请求头以去除首尾空格
                         for k, v in raw_headers.items():
                             if isinstance(v, str):
                                 headers[k.strip()] = v.strip()
@@ -73,18 +73,18 @@ class CrawlerManager:
                     except:
                         pass
                 
-                # 3. Make Request
+                # 3. 发起请求
                 try:
                     response = requests.get(url, headers=headers, timeout=15)
                     response.raise_for_status()
                     
-                    # Handle encoding
+                    # 处理编码
                     response.encoding = response.apparent_encoding 
                     
-                    # Use the final URL for relative link resolution (in case of redirects)
+                    # 使用最终 URL 进行相对链接解析（以防重定向）
                     final_url = response.url
 
-                    # 4. Parse
+                    # 4. 解析
                     tree = html.fromstring(response.content)
                     
                     page_results = []
@@ -100,7 +100,7 @@ class CrawlerManager:
                                 break
                                 
                             try:
-                                # Extract Title
+                                # 提取标题
                                 title = ""
                                 if source['title_selector']:
                                     t_els = item.xpath(source['title_selector'])
@@ -110,17 +110,17 @@ class CrawlerManager:
                                         else:
                                             title = t_els[0].text_content()
                                 
-                                # Extract Link
+                                # 提取链接
                                 link = ""
                                 if source['link_selector']:
                                     l_els = item.xpath(source['link_selector'])
                                     if l_els:
                                         link = l_els[0]
-                                        # Handle relative URLs
+                                        # 处理相对 URL
                                         if link and not link.startswith('http'):
                                             link = urllib.parse.urljoin(final_url, link)
                                 
-                                # Extract Date (Optional)
+                                # 提取日期（可选）
                                 date_str = ""
                                 if source['date_selector']:
                                     d_els = item.xpath(source['date_selector'])
@@ -130,25 +130,25 @@ class CrawlerManager:
                                         else:
                                             date_str = d_els[0].text_content()
                                 
-                                # Extract Cover Image (Optional + Heuristic)
+                                # 提取封面图片（可选 + 启发式）
                                 cover_url = ""
-                                # 1. Try selector if provided
+                                # 1. 如果提供了选择器，尝试使用
                                 if source.get('cover_selector'):
                                     c_els = item.xpath(source['cover_selector'])
                                     if c_els:
                                         if isinstance(c_els[0], str):
                                             cover_url = c_els[0]
                                         else:
-                                            # Try src attribute first, then text
+                                            # 先尝试 src 属性，然后尝试文本
                                             cover_url = c_els[0].get('src', '') or c_els[0].text_content()
                                 
-                                # 2. Heuristic fallback: Find first image in the item
+                                # 2. 启发式回退：查找项目中的第一张图片
                                 if not cover_url:
                                     imgs = item.xpath('.//img/@src')
                                     if imgs:
                                         cover_url = imgs[0]
                                 
-                                # Handle relative URLs for cover
+                                # 处理封面的相对 URL
                                 if cover_url and not cover_url.startswith('http') and not cover_url.startswith('data:'):
                                     cover_url = urllib.parse.urljoin(final_url, cover_url)
 
@@ -167,7 +167,7 @@ class CrawlerManager:
                         
                         all_results.extend(page_results)
                         
-                        # Report progress after page processed
+                        # 页面处理后报告进度
                         if progress_callback:
                             progress_callback(len(all_results), max_items, page_idx + 1, max_pages, all_results)
                         

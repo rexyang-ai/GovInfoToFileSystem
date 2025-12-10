@@ -2,65 +2,77 @@
 
 {% block content %}
 <div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <div>
+    <!-- 1. 栏目名称区 -->
+    <div class="page-header">
+        <div class="page-title">
             <h2>深采内容管理</h2>
-            <p class="text-muted">管理已深度采集的详细内容数据</p>
+            <p>管理已深度采集的详细内容数据</p>
+        </div>
+        <div class="page-actions">
+            <!-- 预留按钮功能区 -->
         </div>
     </div>
 
-    <div class="filter-bar">
-        <form method="GET" action="{{ url_for('content_details') }}" style="display: flex; gap: 1rem; width: 100%; align-items: flex-end;">
-            <div class="filter-group" style="flex: 1;">
-                <label class="form-label">内容搜索</label>
-                <input type="text" name="keyword" class="form-control" value="{{ request.args.get('keyword', '') }}" placeholder="标题/链接...">
+    <!-- 2. 搜索区 -->
+    <div class="section-filter">
+        <form method="GET" action="{{ url_for('content_details') }}" style="display: flex; gap: 1rem; width: 100%; align-items: flex-end; flex-wrap: wrap;">
+            <div class="filter-group">
+                <label class="form-label">关键词搜索</label>
+                <input type="text" name="keyword" class="form-control" value="{{ request.args.get('keyword', '') }}" placeholder="标题/正文内容...">
+            </div>
+            <div class="filter-group">
+                <label class="form-label">发布日期</label>
+                <input type="date" name="publish_date" class="form-control" value="{{ request.args.get('publish_date', '') }}">
             </div>
             <button type="submit" class="btn">搜索</button>
             <a href="{{ url_for('content_details') }}" class="btn btn-secondary">重置</a>
-            <a href="{{ url_for('export_content_details', keyword=request.args.get('keyword', '')) }}" class="btn btn-success" target="_blank">导出CSV</a>
         </form>
     </div>
 
-    <div class="table-container">
+    <!-- 4. 列表区 -->
+    <div class="section-list">
         <table class="table table-hover">
             <thead>
                 <tr>
-                    <th style="width: 50px;">ID</th>
-                    <th style="width: 300px;">标题</th>
-                    <th style="width: 250px;">源链接</th>
-                    <th style="width: 150px;">采集时间</th>
-                    <th style="width: 150px;">操作</th>
+                    <th>ID</th>
+                    <th>标题</th>
+                    <th>发布时间</th>
+                    <th>来源</th>
+                    <th>采集时间</th>
+                    <th>操作</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in items %}
                 <tr>
                     <td>{{ item.id }}</td>
-                    <td title="{{ item.title }}">{{ item.title }}</td>
                     <td>
-                        <a href="{{ item.source_url }}" target="_blank" style="color: var(--accent-color); text-decoration: none; display: inline-block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            {{ item.source_url }}
-                        </a>
+                        <div style="max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ item.title }}">
+                            {{ item.title }}
+                        </div>
                     </td>
+                    <td>{{ item.publish_time or '-' }}</td>
+                    <td>{{ item.source or '-' }}</td>
                     <td>{{ item.crawled_at }}</td>
                     <td>
-                        <button class="btn btn-sm btn-info" onclick="viewContent('{{ item.id }}')">查看/修改</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteContent('{{ item.id }}')">删除</button>
+                        <button class="btn btn-sm" onclick="viewContent('{{ item.id }}')">查看详情</button>
+                        <button class="btn btn-sm" style="color: #dc3545; margin-left: 5px;" onclick="deleteContent('{{ item.id }}')">删除</button>
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="text-center" style="padding: 2rem;">暂无深采数据</td>
+                    <td colspan="6" class="text-center" style="padding: 2rem;">暂无数据</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 
+    <!-- 5. 分页区 -->
     {% if total_pages > 1 %}
-    <div class="pagination">
+    <div class="section-pagination">
         {% if page > 1 %}
-        <a href="{{ url_for('content_details', page=page-1, keyword=request.args.get('keyword', '')) }}" class="pagination-btn">上一页</a>
+        <a href="{{ url_for('content_details', page=page-1, keyword=request.args.get('keyword', ''), publish_date=request.args.get('publish_date', '')) }}" class="pagination-btn">上一页</a>
         {% else %}
         <span class="pagination-btn disabled">上一页</span>
         {% endif %}
@@ -68,7 +80,7 @@
         <span class="pagination-info">第 {{ page }} / {{ total_pages }} 页</span>
         
         {% if page < total_pages %}
-        <a href="{{ url_for('content_details', page=page+1, keyword=request.args.get('keyword', '')) }}" class="pagination-btn">下一页</a>
+        <a href="{{ url_for('content_details', page=page+1, keyword=request.args.get('keyword', ''), publish_date=request.args.get('publish_date', '')) }}" class="pagination-btn">下一页</a>
         {% else %}
         <span class="pagination-btn disabled">下一页</span>
         {% endif %}
@@ -118,7 +130,7 @@
     }
     
     function viewContent(id) {
-        // Fetch details
+        // 获取详情
         fetch(`/content_details/get/${id}`)
             .then(response => response.json())
             .then(data => {

@@ -1,19 +1,19 @@
-// Global state
+// 全局状态
 window.inspectorEnabled = false;
 window.hoveredElement = null;
 
-// CSS for highlighting
+// 高亮样式
 const style = document.createElement('style');
 style.textContent = `
     .gov-inspector-highlight {
-        outline: 2px solid #ff0000 !important;
-        background-color: rgba(255, 0, 0, 0.1) !important;
+        outline: 2px solid #e10f0fff !important;
+        background-color: rgba(0, 255, 242, 0.47) !important;
         cursor: crosshair !important;
     }
 `;
 document.head.appendChild(style);
 
-// Helper: Generate XPath
+// 辅助函数：生成 XPath
 function getXPath(element) {
     if (element.id !== '')
         return '//*[@id="' + element.id + '"]';
@@ -32,21 +32,21 @@ function getXPath(element) {
     }
 }
 
-// Helper: Generate Smart XPath (Shortest unique)
+// 辅助函数：生成智能 XPath（最短唯一）
 function getSmartXPath(element) {
     if (element.id !== '')
         return '//*[@id="' + element.id + '"]';
     
     const paths = [];
     
-    // 1. Try class-based
+    // 1. 尝试基于 Class
     if (element.className && typeof element.className === 'string') {
         const classes = element.className.trim().split(/\s+/);
         for (let cls of classes) {
             if (!cls) continue;
-            // Skip common utility classes if needed
+            // 如果需要，跳过通用工具类
             const p = `//${element.tagName.toLowerCase()}[contains(@class, '${cls}')]`;
-            // Check uniqueness
+            // 检查唯一性
             const count = document.evaluate("count(" + p + ")", document, null, XPathResult.ANY_TYPE, null).numberValue;
             if (count === 1) return p;
         }
@@ -55,7 +55,7 @@ function getSmartXPath(element) {
     return getXPath(element);
 }
 
-// Helper: Validate Selector (AMH Stability Check)
+// 辅助函数：验证选择器（AMH 稳定性检查）
 function validateSelector(xpath) {
     try {
         const result = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
@@ -65,7 +65,7 @@ function validateSelector(xpath) {
     }
 }
 
-// Event Listeners
+// 事件监听器
 document.addEventListener('mouseover', function(e) {
     if (!window.inspectorEnabled) return;
     
@@ -79,7 +79,7 @@ document.addEventListener('mouseover', function(e) {
     window.hoveredElement = e.target;
     window.hoveredElement.classList.add('gov-inspector-highlight');
     
-    // Optional: Send hover info to Python for "Live Preview"
+    // 可选：将悬停信息发送到 Python 进行“实时预览”
 }, true);
 
 document.addEventListener('mouseout', function(e) {
@@ -100,7 +100,7 @@ document.addEventListener('click', function(e) {
     const xpath = getXPath(target);
     const smartXpath = getSmartXPath(target);
     
-    // AMH Stability Check
+    // AMH 稳定性检查
     const xpathCount = validateSelector(xpath);
     const smartXpathCount = validateSelector(smartXpath);
     
@@ -117,12 +117,12 @@ document.addEventListener('click', function(e) {
         xpath_count: xpathCount,
         smart_xpath_count: smartXpathCount,
         tag: tagName,
-        text: text.substring(0, 100), // Preview
+        text: text.substring(0, 100), // 预览
         attributes: attributes,
         outer_html: target.outerHTML.substring(0, 500)
     };
     
-    // Send to Python
+    // 发送到 Python
     if (window.bridge) {
         window.bridge.receive_selection(JSON.stringify(data));
     } else {
@@ -131,7 +131,7 @@ document.addEventListener('click', function(e) {
     
 }, true);
 
-// Initialize Bridge
+// 初始化 Bridge
 function initBridge() {
     if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
         console.log("qt.webChannelTransport not ready, waiting...");

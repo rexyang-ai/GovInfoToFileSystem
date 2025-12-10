@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="ai-engine-container">
-    <div class="header-section" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-        <div>
+<div>
+    <!-- 1. 栏目名称区 -->
+    <div class="page-header">
+        <div class="page-title">
             <h2>AI模型引擎</h2>
-            <p class="text-muted">管理大语言模型配置与测试</p>
+            <p>管理大语言模型配置与测试</p>
         </div>
-        <div style="display: flex; gap: 1rem; align-items: center;">
+        <!-- 3. 按钮功能区 (全局) -->
+        <div class="page-actions">
             <div class="stats-badge" style="background: var(--card-bg); padding: 0.5rem 1rem; border-radius: 8px; border: 1px solid var(--border-color);">
                 <span class="text-muted">总Token消耗:</span>
                 <span id="totalTokens" style="font-weight: bold; color: var(--accent-color); margin-left: 0.5rem;">Loading...</span>
@@ -18,6 +20,7 @@
         </div>
     </div>
 
+    <!-- 4. 列表区 (网格布局) -->
     <div class="models-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem;">
         {% for model in models %}
         <div class="model-card" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; transition: transform 0.2s, box-shadow 0.2s; position: relative; overflow: hidden;">
@@ -56,7 +59,7 @@
     </div>
 </div>
 
-<!-- Add/Edit Modal -->
+<!-- 新增/编辑模态框 -->
 <div id="modelModal" class="modal-overlay">
     <div class="modal-content" style="max-width: 600px; width: 90%;">
         <div class="modal-header">
@@ -97,7 +100,7 @@
     </div>
 </div>
 
-<!-- Test Chat Modal -->
+<!-- 测试对话模态框 -->
 <div id="testModal" class="modal-overlay">
     <div class="modal-content" style="max-width: 800px; width: 90%; height: 80vh; display: flex; flex-direction: column; padding: 0;">
         <div class="modal-header" style="padding: 1rem; margin-bottom: 0;">
@@ -153,7 +156,7 @@
         word-wrap: break-word;
         line-height: 1.5;
     }
-    /* Markdown content styles in bubble */
+    /* 气泡中的 Markdown 内容样式 */
     .bubble pre {
         background: #1e1e1e;
         padding: 0.5rem;
@@ -169,7 +172,7 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
-    // Stats
+    // 统计数据
     function updateStats() {
         fetch('/ai_models/stats')
             .then(res => res.json())
@@ -179,7 +182,7 @@
     }
     updateStats();
 
-    // Modal Logic
+    // 模态框逻辑
     const modelModal = document.getElementById('modelModal');
     const testModal = document.getElementById('testModal');
     let currentTestModelId = null;
@@ -260,7 +263,7 @@
         });
     }
 
-    // Test Logic
+    // 测试逻辑
     function testModel(id, name) {
         currentTestModelId = id;
         document.getElementById('testModelName').textContent = name;
@@ -306,11 +309,11 @@
         input.value = '';
         appendMessage('user', message);
 
-        // Create AI placeholder
+        // 创建 AI 占位符
         const aiBubble = appendMessage('ai', '<span class="typing">Thinking...</span>');
         let fullContent = '';
 
-        // SSE Connection
+        // SSE 连接
         const eventSource = new EventSource(`/ai_models/test_sse?model_id=${currentTestModelId}&message=${encodeURIComponent(message)}`);
 
         eventSource.onmessage = function(event) {
@@ -336,7 +339,7 @@
         };
     }
     
-    // Close modals on outside click
+    // 点击外部关闭模态框
     window.onclick = function(event) {
         if (event.target == modelModal) {
             closeModelModal();

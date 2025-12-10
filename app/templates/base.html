@@ -28,17 +28,17 @@
         {% endif %}
     </nav>
 
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="flash-messages">
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
     <div class="container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="flash-messages">
-                {% for category, message in messages %}
-                    <div class="flash {{ category }}">{{ message }}</div>
-                {% endfor %}
-                </div>
-            {% endif %}
-        {% endwith %}
-        
         {% block content %}{% endblock %}
     </div>
 
@@ -57,7 +57,7 @@
     </div>
 
     <script>
-        // Global Confirm Modal Logic
+        // 全局确认模态框逻辑
         let confirmCallback = null;
 
         function showConfirm(message, callback) {
@@ -80,7 +80,7 @@
             closeConfirmModal();
         });
 
-        // Close on overlay click
+        // 点击遮罩层关闭
         document.getElementById('globalConfirmModal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeConfirmModal();
@@ -97,12 +97,27 @@
             `;
             container.appendChild(toast);
 
-            // Auto remove after 3 seconds
+            // 3秒后自动移除
             setTimeout(() => {
                 toast.style.animation = 'fadeOut 0.3s ease-out forwards';
                 setTimeout(() => toast.remove(), 300);
             }, 3000);
         }
+
+        // 自动关闭 Flash 消息
+        document.addEventListener('DOMContentLoaded', function() {
+            const flashMessages = document.querySelectorAll('.flash');
+            if (flashMessages.length > 0) {
+                flashMessages.forEach(msg => {
+                    setTimeout(() => {
+                        msg.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+                        msg.style.opacity = '0';
+                        msg.style.transform = 'translateY(-20px)';
+                        setTimeout(() => msg.remove(), 500);
+                    }, 3000); // 3秒后消失
+                });
+            }
+        });
     </script>
     {% block scripts %}{% endblock %}
 </body>

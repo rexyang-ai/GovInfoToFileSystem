@@ -2,15 +2,20 @@
 
 {% block content %}
 <div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <div>
+    <!-- 1. 栏目名称区 -->
+    <div class="page-header">
+        <div class="page-title">
             <h2>规则库管理</h2>
-            <p class="text-muted">管理爬虫采集规则</p>
+            <p>管理爬虫采集规则</p>
         </div>
-        <button class="btn" onclick="openRuleModal()">+ 新增规则</button>
+        <!-- 3. 按钮功能区 (全局) -->
+        <div class="page-actions">
+            <button class="btn" onclick="openRuleModal()">+ 新增规则</button>
+        </div>
     </div>
 
-    <div class="filter-bar">
+    <!-- 2. 搜索区 -->
+    <div class="section-filter">
         <form method="GET" action="{{ url_for('rules') }}" style="display: flex; gap: 1rem; width: 100%; align-items: flex-end;">
             <div class="filter-group" style="flex: 1;">
                 <label class="form-label">规则搜索</label>
@@ -21,7 +26,8 @@
         </form>
     </div>
 
-    <div class="table-container">
+    <!-- 4. 列表区 -->
+    <div class="section-list">
         <table class="table table-hover">
             <thead>
                 <tr>
@@ -57,8 +63,9 @@
         </table>
     </div>
 
+    <!-- 5. 分页区 -->
     {% if total_pages > 1 %}
-    <div class="pagination">
+    <div class="section-pagination">
         {% if page > 1 %}
         <a href="{{ url_for('rules', page=page-1, keyword=request.args.get('keyword', '')) }}" class="pagination-btn">上一页</a>
         {% else %}
@@ -107,6 +114,17 @@
                 <input type="text" id="contentXpath" class="form-control">
             </div>
         </div>
+
+        <div class="row" style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label>发布时间 XPath</label>
+                <input type="text" id="publishTimeXpath" class="form-control">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label>来源 XPath</label>
+                <input type="text" id="sourceXpath" class="form-control">
+            </div>
+        </div>
         
         <div class="form-group">
             <label>请求头 (支持 JSON 或 浏览器复制的原始文本)</label>
@@ -127,12 +145,15 @@
         document.getElementById('modalTitle').innerText = isEdit ? '编辑规则' : '新增规则';
         document.getElementById('ruleModal').classList.add('show');
         if (!isEdit) {
+            // 清空表单
             // Clear form
             document.getElementById('ruleId').value = '';
             document.getElementById('ruleName').value = '';
             document.getElementById('urlPattern').value = '';
             document.getElementById('titleXpath').value = '';
             document.getElementById('contentXpath').value = '';
+            document.getElementById('publishTimeXpath').value = '';
+            document.getElementById('sourceXpath').value = '';
             document.getElementById('requestHeaders').value = '';
         }
     }
@@ -154,6 +175,8 @@
                 document.getElementById('urlPattern').value = data.url_pattern;
                 document.getElementById('titleXpath').value = data.title_xpath;
                 document.getElementById('contentXpath').value = data.content_xpath;
+                document.getElementById('publishTimeXpath').value = data.publish_time_xpath || '';
+                document.getElementById('sourceXpath').value = data.source_xpath || '';
                 document.getElementById('requestHeaders').value = data.request_headers;
                 
                 openRuleModal(true);
@@ -168,6 +191,8 @@
             url_pattern: document.getElementById('urlPattern').value,
             title_xpath: document.getElementById('titleXpath').value,
             content_xpath: document.getElementById('contentXpath').value,
+            publish_time_xpath: document.getElementById('publishTimeXpath').value,
+            source_xpath: document.getElementById('sourceXpath').value,
             request_headers: document.getElementById('requestHeaders').value
         };
 

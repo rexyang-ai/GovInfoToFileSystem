@@ -1,20 +1,29 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>爬虫源管理</h2>
-        <button class="btn btn-primary" id="btn-add-source">新增爬虫源</button>
+<div>
+    <!-- 1. 栏目名称区 -->
+    <div class="page-header">
+        <div class="page-title">
+            <h2>爬虫源管理</h2>
+            <p>管理和配置爬虫源</p>
+        </div>
+        <!-- 3. 按钮功能区 (全局) -->
+        <div class="page-actions">
+            <button class="btn btn-primary" id="btn-add-source">新增爬虫源</button>
+        </div>
     </div>
 
-    <div class="filter-bar">
-        <div class="filter-group">
+    <!-- 2. 搜索区 -->
+    <div class="section-filter">
+        <div class="filter-group" style="flex: 1;">
             <input type="text" id="search-input" class="form-control" placeholder="搜索爬虫源名称或URL...">
         </div>
         <button class="btn" onclick="searchSources()">搜索</button>
     </div>
 
-    <div class="table-container">
+    <!-- 4. 列表区 -->
+    <div class="section-list">
         <table class="table" id="sources-table">
             <thead>
                 <tr>
@@ -31,7 +40,8 @@
         </table>
     </div>
 
-    <div id="pagination-container" class="pagination"></div>
+    <!-- 5. 分页区 -->
+    <div id="pagination-container" class="section-pagination"></div>
 </div>
 
 <!-- Add/Edit Modal -->
@@ -151,7 +161,7 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/w
     $(document).ready(function() {
         loadSources();
 
-        // Trigger search on Enter
+        // 回车触发搜索
         $('#search-input').keypress(function(e) {
             if(e.which == 13) searchSources();
         });
@@ -205,17 +215,17 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/w
         
         if (totalPages <= 1) return;
         
-        // Prev
+        // 上一页
         if (page > 1) {
             container.append(`<a href="#" class="pagination-btn" onclick="loadSources(${page - 1}); return false;">上一页</a>`);
         } else {
             container.append(`<span class="pagination-btn disabled">上一页</span>`);
         }
         
-        // Info
+        // 页码信息
         container.append(`<span class="pagination-info">第 ${page} / ${totalPages} 页</span>`);
         
-        // Next
+        // 下一页
         if (page < totalPages) {
             container.append(`<a href="#" class="pagination-btn" onclick="loadSources(${page + 1}); return false;">下一页</a>`);
         } else {
@@ -224,7 +234,7 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/w
     }
 
     $(document).ready(function() {
-        // Modal Handling
+        // 模态框处理
         const modal = $('#sourceModal');
         
         $('#btn-add-source').click(function() {
@@ -240,7 +250,7 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/w
             modal.removeClass('show');
         });
         
-        // Edit Source
+        // 编辑源
         $(document).on('click', '.btn-edit', function() {
             const id = $(this).data('id');
             $.get(`/api/sources/${id}`, function(source) {
@@ -262,7 +272,7 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/w
             });
         });
 
-        // Save Source
+        // 保存源
         $('#sourceForm').submit(function(e) {
             e.preventDefault();
             
@@ -301,7 +311,7 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/w
             });
         });
 
-        // Delete Source
+        // 删除源
         $(document).on('click', '.btn-delete', function() {
             const id = $(this).data('id');
             showConfirm('确定要删除这个爬虫源吗？', function() {
@@ -319,7 +329,7 @@ Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/w
             });
         });
         
-        // Close modal on outside click
+        // 点击外部关闭模态框
         $(window).click(function(event) {
             if (event.target == modal[0]) {
                 modal.removeClass('show');

@@ -1,22 +1,23 @@
 import json
 import sqlite3
+import time
 from openai import OpenAI
 import httpx
 from app.database.db import get_db_connection
 
-# Tool definition for the model
+# Tool definitions used by the model
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "query_database",
-            "description": "Execute a SQL query on the content_details table to retrieve information. The table schema is: content_details (id, source_url, title, content, html_content, rule_id, crawled_at). Use SQLite syntax. content column contains the main text.",
+            "description": "对 content_details 表执行 SQL 查询以检索信息。表结构为：content_details (id, source_url, title, content, html_content, rule_id, crawled_at)。请使用 SQLite 语法。content 列包含主要文本内容。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "sql_query": {
                         "type": "string",
-                        "description": "The SQL query to execute."
+                        "description": "要执行的 SQL 查询语句。"
                     }
                 },
                 "required": ["sql_query"]
@@ -27,46 +28,50 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "generate_echart",
-            "description": "Generate a chart using ECharts. Use this when the user asks for a visualization or when data can be better represented graphically.",
+            "description": "使用 ECharts 生成图表。当用户请求可视化时使用此工具。支持多系列数据。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "The title of the chart."
+                        "description": "图表标题。"
                     },
                     "chart_type": {
                         "type": "string",
-                        "enum": ["bar", "line", "pie"],
-                        "description": "The type of chart to generate."
+                        "enum": ["bar", "line", "pie", "scatter"],
+                        "description": "默认图表类型（如果在系列中未指定）。"
                     },
                     "x_data": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Labels for the X-axis (for bar/line) or category names (for pie)."
+                        "description": "X 轴标签（类别名称）。"
                     },
-                    "series_data": {
+                    "series": {
                         "type": "array",
-                        "items": {"type": "number"},
-                        "description": "Data values for the series."
-                    },
-                    "series_name": {
-                        "type": "string",
-                        "description": "Name of the data series."
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "data": {"type": "array", "items": {"type": "number"}},
+                                "type": {"type": "string", "enum": ["bar", "line", "pie", "scatter"]}
+                            },
+                            "required": ["name", "data"]
+                        },
+                        "description": "数据系列列表。每个系列包含名称、数据数组和可选的类型覆盖。"
                     }
                 },
-                "required": ["title", "chart_type", "x_data", "series_data"]
+                "required": ["title", "x_data", "series"]
             }
         }
     }
 ]
 
 def execute_sql(query):
-    """Execute a SQL query against the database and return results."""
+    """Execute SQL query on the database and return results."""
     try:
         # Safety check: only allow SELECT statements
         if not query.strip().upper().startswith("SELECT"):
-            return {"error": "Only SELECT queries are allowed for analysis."}
+            return {"error": "分析功能仅允许使用 SELECT 查询。"}
 
         conn = get_db_connection()
         conn.row_factory = sqlite3.Row
@@ -77,32 +82,60 @@ def execute_sql(query):
         # Convert to list of dicts for JSON serialization
         result = []
         for row in rows:
-            # Handle binary data or other non-serializable types if any
+            # Handle binary data or other non-serializable types (if any)
             row_dict = {}
             for key in row.keys():
-                row_dict[key] = row[key]
+                val = row[key]
+                # Truncate overly long text fields to save tokens
+                if isinstance(val, str) and len(val) > 200:
+                    val = val[:200] + "...(已截断)"
+                row_dict[key] = val
             result.append(row_dict)
         
         conn.close()
         
         # Limit result size to prevent token overflow
-        # If result is too large, we should probably summarize or truncate
+        # If result is too large, we should summarize or truncate
         if len(result) > 20:
-            return {"data": result[:20], "warning": f"Result truncated. Showing 20 of {len(result)} rows. Please refine query if needed."}
+            return {"data": result[:20], "warning": f"结果已截断。显示 {len(result)} 行中的前 20 行。如有需要请优化查询。"}
             
+        if not result:
+            return {"data": [], "message": "查询成功执行，但未返回任何结果。请尝试不同的查询。"}
+
         return {"data": result}
     except Exception as e:
         return {"error": str(e)}
 
+import math
+
+def calculate_tokens(text):
+    """
+    Estimate the number of tokens for the given text.
+    Heuristic rules:
+    - ASCII characters (English, numbers, symbols): ~0.25 Token/char (4 chars = 1 Token)
+    - Non-ASCII characters (Chinese, Emojis, etc.): ~1.5 Token/char
+    """
+    if not text:
+        return 0
+    
+    token_count = 0
+    for char in text:
+        if ord(char) < 128:
+            token_count += 0.25
+        else:
+            token_count += 1.5
+            
+    return math.ceil(token_count)
+
 def stream_chat_with_data(model_config, messages):
     """
-    Stream chat response from the AI model, handling tool calls for database querying.
-    model_config: dict with 'api_base', 'api_key', 'model_name'
-    messages: list of message dicts
+    Stream AI model chat response, handling tool calls for database queries.
+    model_config: Dict containing 'api_base', 'api_key', 'model_name'
+    messages: List of message dictionaries
     """
     
     api_base = model_config['api_base']
-    # OpenAI client expects base_url without /chat/completions
+    # OpenAI client expects base_url not to contain /chat/completions
     if api_base.endswith('/chat/completions'):
         api_base = api_base.replace('/chat/completions', '')
     if api_base.endswith('/'):
@@ -114,72 +147,147 @@ def stream_chat_with_data(model_config, messages):
         http_client=httpx.Client(verify=False) # Disable SSL verification if needed or for compatibility
     )
 
-    # Add system prompt if not present at start
+    # Add system prompt if not present at the beginning
     system_prompt = {
         "role": "system",
-        "content": "You are a data analysis assistant. You can query the 'content_details' table to answer user questions. "
-                   "Always use the 'query_database' tool when you need data. "
-                   "When the user requests a visualization (e.g., pie chart, bar chart, line chart) or when data can be better represented graphically, "
-                   "always use the 'generate_echart' tool after obtaining the necessary data. "
-                   "After getting data and generating visualizations (if needed), analyze it and provide a comprehensive report or answer. "
-                   "The table 'content_details' has columns: id, source_url, title, content, html_content, rule_id, crawled_at. "
-                   "When writing SQL, ensure it is valid SQLite syntax."
+        "content": "你是一个数据分析助手。你可以查询 'content_details' 表来回答用户的问题。"
+                   "当需要数据时，请务必使用 'query_database' 工具。"
+                   "当用户请求可视化（例如：饼图、柱状图、折线图）或数据可以通过图形更好地表示时，"
+                   "在获取必要数据后，请务必使用 'generate_echart' 工具。"
+                   "注意：当使用 'generate_echart' 工具时，禁止在文本回复中生成 base64 图片数据或 Markdown 图片链接。"
+                   "前端会自动根据你的工具调用渲染交互式图表。"
+                   "你可以连续多次使用工具（例如：查询 -> 查询 -> 图表）。"
+                   "表 'content_details' 包含以下列：id, source_url, title, content, html_content, rule_id, crawled_at。"
+                   "编写 SQL 时，请确保使用有效的 SQLite 语法。"
+                   "如果需要聚合数据，请尝试先在 SQL 中完成。"
     }
     
     if not messages or messages[0]['role'] != 'system':
         messages.insert(0, system_prompt)
 
-    print(f"Sending request to {api_base} with model {model_config['model_name']}")
+    # Force enhance system prompt
+    if messages[0]['role'] == 'system':
+        messages[0]['content'] = (
+            "你是一个数据分析助手。你可以查询 'content_details' 表来回答用户的问题。"
+            "当需要数据时，请务必使用 'query_database' 工具。"
+            "当用户请求可视化（例如：饼图、柱状图、折线图）或数据可以通过图形更好地表示时，"
+            "在获取必要数据后，请务必使用 'generate_echart' 工具。"
+            "IMPORTANT: 当使用 'generate_echart' 工具生成图表时，**严禁**在回复中输出任何 base64 图片数据、Markdown 图片语法 (![...](...)) 或 HTML img 标签。"
+            "只需调用 'generate_echart' 工具，前端会负责渲染。生成冗余的图片数据会导致错误。"
+            "你可以连续多次使用工具（例如：查询 -> 查询 -> 图表）。"
+            "表 'content_details' 包含以下列：id, source_url, title, content, html_content, rule_id, crawled_at。"
+            "编写 SQL 时，请确保使用有效的 SQLite 语法。"
+            "如果需要聚合数据，请尝试先在 SQL 中完成（GROUP BY, COUNT 等）。"
+            "对于图表，请确保提供与 'x_data' 匹配的有效 'series' 数据点。"
+            "如果查询没有返回结果，请尝试更广泛的查询或通知用户。"
+        )
+
+    print(f"Sending request to {api_base}, model is {model_config['model_name']}")
+    
+    # Estimate tokens for tool definitions (one-time)
+    tools_tokens = calculate_tokens(json.dumps(TOOLS))
+    
+    total_input_tokens = 0
+    total_output_tokens = 0
     
     try:
-        stream = client.chat.completions.create(
-            model=model_config['model_name'],
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            stream=True,
-            temperature=0.1
-        )
+        max_turns = 10 # Increase max turns for complex workflows
+        current_turn = 0
         
-        collected_content = ""
-        tool_calls_buffer = {} # index -> {id, type, function: {name, arguments}}
-        
-        for chunk in stream:
-            if not chunk.choices:
-                continue
+        while current_turn < max_turns:
+            current_turn += 1
+            
+            # Calculate input tokens for current turn
+            current_input_tokens = tools_tokens
+            for msg in messages:
+                current_input_tokens += calculate_tokens(str(msg.get('content', '')))
+                # Add some overhead for message structure/roles
+                current_input_tokens += 4 
+                if msg.get('tool_calls'):
+                     current_input_tokens += calculate_tokens(json.dumps(msg['tool_calls']))
+            
+            total_input_tokens += current_input_tokens
+            
+            # Retry mechanism for rate limits
+            max_retries = 3
+            retry_count = 0
+            stream = None
+            
+            while retry_count < max_retries:
+                try:
+                    stream = client.chat.completions.create(
+                        model=model_config['model_name'],
+                        messages=messages,
+                        tools=TOOLS,
+                        tool_choice="auto",
+                        stream=True,
+                        temperature=0.1
+                    )
+                    break # Success, exit retry loop
+                except Exception as e:
+                    error_msg = str(e)
+                    if "429" in error_msg or "rate limit" in error_msg.lower():
+                        retry_count += 1
+                        wait_time = 2 ** retry_count # Exponential backoff: 2, 4, 8 seconds
+                        print(f"Rate limit triggered. Retrying in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                        if retry_count == max_retries:
+                            raise e # Re-raise exception if max retries reached
+                    else:
+                        raise e # Immediately re-raise other errors
+            
+            collected_content = ""
+            tool_calls_buffer = {} # Index -> {id, type, function: {name, arguments}}
+            has_tool_calls = False
+            
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                    
+                delta = chunk.choices[0].delta
                 
-            delta = chunk.choices[0].delta
-            
-            # Handle content
-            if delta.content:
-                content = delta.content
-                collected_content += content
-                yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
-            
-            # Handle tool calls (accumulation)
-            if delta.tool_calls:
-                for tool_call in delta.tool_calls:
-                    idx = tool_call.index
-                    
-                    if idx not in tool_calls_buffer:
-                        tool_calls_buffer[idx] = {
-                            "id": tool_call.id,
-                            "type": tool_call.type,
-                            "function": {
-                                "name": tool_call.function.name,
-                                "arguments": ""
+                # Handle content
+                if delta.content:
+                    content = delta.content
+                    collected_content += content
+                    yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
+                
+                # Handle tool calls (accumulated)
+                if delta.tool_calls:
+                    has_tool_calls = True
+                    for tool_call in delta.tool_calls:
+                        idx = tool_call.index
+                        
+                        if idx not in tool_calls_buffer:
+                            tool_calls_buffer[idx] = {
+                                "id": tool_call.id,
+                                "type": tool_call.type,
+                                "function": {
+                                    "name": tool_call.function.name,
+                                    "arguments": ""
+                                }
                             }
-                        }
-                    
-                    if tool_call.function.arguments:
-                        tool_calls_buffer[idx]["function"]["arguments"] += tool_call.function.arguments
-        
-        # Check if we have tool calls to execute
-        if tool_calls_buffer:
-            # We need to inform the client that we are executing tools
-            yield f"data: {json.dumps({'type': 'status', 'status': 'analyzing', 'message': '正在查询数据库...'})}\n\n"
+                        
+                        if tool_call.function.arguments:
+                            tool_calls_buffer[idx]["function"]["arguments"] += tool_call.function.arguments
             
-            # Construct the assistant message with tool calls
+            # Calculate output tokens for current turn
+            turn_output_tokens = calculate_tokens(collected_content)
+            if has_tool_calls:
+                 # Add tool call tokens
+                 for idx, tool_data in tool_calls_buffer.items():
+                     turn_output_tokens += calculate_tokens(json.dumps(tool_data))
+            
+            total_output_tokens += turn_output_tokens
+            
+            # If no tool calls, we finish the current turn (and possibly the whole response)
+            if not has_tool_calls:
+                break
+            
+            # We have tool calls to execute
+            yield f"data: {json.dumps({'type': 'status', 'status': 'analyzing', 'message': '正在执行工具调用...'})}\n\n"
+            
+            # Build assistant message containing tool calls
             assistant_msg = {
                 "role": "assistant",
                 "content": collected_content if collected_content else None,
@@ -212,7 +320,7 @@ def stream_chat_with_data(model_config, messages):
                         
                         yield f"data: {json.dumps({'type': 'step', 'name': '执行SQL', 'status': 'completed', 'details': '查询成功'})}\n\n"
                         
-                        # Append tool result to messages
+                        # Append tool result to message list
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call_data["id"],
@@ -245,24 +353,10 @@ def stream_chat_with_data(model_config, messages):
                         "content": json.dumps({"error": str(e)})
                     })
             
-            # Second request: get final answer based on tool results
-            # payload["messages"] = messages -> already appended
+            # Loop continues to next turn, letting LLM see tool results and decide next steps
             
-            yield f"data: {json.dumps({'type': 'status', 'status': 'thinking', 'message': '正在生成报告...'})}\n\n"
-            
-            stream2 = client.chat.completions.create(
-                model=model_config['model_name'],
-                messages=messages,
-                stream=True,
-                temperature=0.1
-            )
-            
-            for chunk in stream2:
-                if chunk.choices:
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        yield f"data: {json.dumps({'type': 'content', 'content': delta.content})}\n\n"
-
+        # Yield usage statistics before ending
+        yield f"data: {json.dumps({'type': 'usage', 'input_tokens': total_input_tokens, 'output_tokens': total_output_tokens})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     except Exception as e:

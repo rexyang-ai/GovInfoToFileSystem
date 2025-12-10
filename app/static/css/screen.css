@@ -28,13 +28,13 @@ body.screen-mode {
     box-sizing: border-box;
 }
 
-/* Header */
+/* 头部区域 */
 .screen-header {
     height: var(--header-height);
     display: flex;
     justify-content: center;
     align-items: center;
-    background: url('../img/header-bg.png') no-repeat center top; /* Placeholder if no image */
+    background: url('../img/header-bg.png') no-repeat center top; /* 如果没有图片则显示占位符 */
     background-size: cover;
     position: relative;
     border-bottom: 1px solid rgba(0, 242, 255, 0.1);
@@ -62,7 +62,7 @@ body.screen-mode {
     font-family: monospace;
 }
 
-/* Main Content Grid */
+/* 主要内容网格 */
 .screen-content {
     flex: 1;
     display: grid;
@@ -73,7 +73,7 @@ body.screen-mode {
     overflow: hidden;
 }
 
-/* Cards */
+/* 卡片样式 */
 .screen-card {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
@@ -125,14 +125,14 @@ body.screen-mode {
     position: relative;
 }
 
-/* Layout Assignments */
+/* 布局分配 */
 .area-left-top { grid-column: 1; grid-row: 1; }
 .area-left-bottom { grid-column: 1; grid-row: 2; }
 .area-center { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; }
 .area-right-top { grid-column: 3; grid-row: 1; }
 .area-right-bottom { grid-column: 3; grid-row: 2; }
 
-/* Center Map Area */
+/* 中间地图区域 */
 .map-container {
     flex: 1;
     position: relative;
@@ -164,7 +164,7 @@ body.screen-mode {
     color: var(--text-secondary);
 }
 
-/* Table Styles */
+/* 表格样式 */
 .screen-table {
     width: 100%;
     border-collapse: collapse;
@@ -192,7 +192,7 @@ body.screen-mode {
     background: rgba(255, 255, 255, 0.05);
 }
 
-/* Scrolling List Animation */
+/* 滚动列表动画 */
 .scrolling-list {
     height: 100%;
     overflow: hidden;
@@ -211,7 +211,7 @@ body.screen-mode {
     100% { transform: translateY(-50%); }
 }
 
-/* Responsive adjustments */
+/* 响应式调整 */
 @media (max-width: 1200px) {
     .screen-content {
         grid-template-columns: 1fr 1fr;

@@ -1,77 +1,87 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Toast Container -->
+<!-- Toast 消息容器 -->
 <div id="toast-container" class="toast-container"></div>
 
 <style>
-        .progress-container {
-            height: 25px;
-            background-color: #37474f;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-top: 20px;
-            display: none;
-            position: relative;
-        }
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #4caf50, #81c784);
-            width: 0%;
-            transition: width 0.5s ease;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 1;
-        }
-        .progress-text-overlay {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 2;
-            color: white;
-            font-size: 0.85rem;
-            font-weight: bold;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-        }
-        /* Add striped animation */
-        .progress-bar {
-            background-image: linear-gradient(
-                45deg, 
-                rgba(255, 255, 255, 0.15) 25%, 
-                transparent 25%, 
-                transparent 50%, 
-                rgba(255, 255, 255, 0.15) 50%, 
-                rgba(255, 255, 255, 0.15) 75%, 
-                transparent 75%, 
-                transparent
-            );
-            background-size: 1rem 1rem;
-            animation: progress-bar-stripes 1s linear infinite;
-        }
-        @keyframes progress-bar-stripes {
-            0% { background-position: 1rem 0; }
-            100% { background-position: 0 0; }
-        }
-    </style>
+    .progress-container {
+        height: 25px;
+        background-color: #37474f;
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+        display: none;
+        position: relative;
+    }
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #4caf50, #81c784);
+        width: 0%;
+        transition: width 0.5s ease;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+    }
+    .progress-text-overlay {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        top: 0;
+        left: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2;
+        color: white;
+        font-size: 0.85rem;
+        font-weight: bold;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    /* 添加条纹动画 */
+    .progress-bar {
+        background-image: linear-gradient(
+            45deg, 
+            rgba(255, 255, 255, 0.15) 25%, 
+            transparent 25%, 
+            transparent 50%, 
+            rgba(255, 255, 255, 0.15) 50%, 
+            rgba(255, 255, 255, 0.15) 75%, 
+            transparent 75%, 
+            transparent
+        );
+        background-size: 1rem 1rem;
+        animation: progress-bar-stripes 1s linear infinite;
+    }
+    @keyframes progress-bar-stripes {
+        0% { background-position: 1rem 0; }
+        100% { background-position: 0 0; }
+    }
+</style>
 
-    <div class="search-section">
-        <h2>数据采集控制台</h2>
-        <p class="text-muted">输入关键字启动智能爬虫，获取最新互联网数据</p>
-        
-        <div class="search-box">
-            <input type="text" id="keyword" class="form-control" placeholder="请输入搜索关键字或需求..." style="font-size: 1.1rem;">
-            <button id="btn-search" class="btn">开始采集</button>
+<div>
+    <!-- 1. 栏目名称区 -->
+    <div class="page-header">
+        <div class="page-title">
+            <h2>数据采集控制台</h2>
+            <p>输入关键字启动智能爬虫，获取最新互联网数据</p>
         </div>
-    
-        <!-- Pagination Settings (Hidden by default) -->
-        <div id="pagination-settings" style="display: none; max-width: 800px; margin: 15px auto; text-align: left; padding: 10px; background: #263238; border-radius: 8px;">
-            <div style="display: flex; gap: 20px; align-items: center;">
+        <div class="page-actions">
+            <!-- 预留操作区 -->
+        </div>
+    </div>
+
+    <!-- 2. 搜索与设置区 -->
+    <div class="section-filter" style="display: block;">
+        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+            <input type="text" id="keyword" class="form-control" placeholder="请输入搜索关键字或需求..." style="flex: 1; font-size: 1.1rem;">
+            <button id="btn-search" class="btn" style="padding-left: 2rem; padding-right: 2rem;">开始采集</button>
+        </div>
+
+        <!-- 分页设置 (默认隐藏) -->
+        <div id="pagination-settings" style="display: none; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+            <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
                 <span style="font-weight: bold; color: var(--secondary-color);">采集设置:</span>
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <label for="max-pages" style="margin: 0;">最大页数:</label>
@@ -84,39 +94,46 @@
                 <small class="text-muted" style="margin-left: auto;">(仅对支持分页的数据源生效)</small>
             </div>
         </div>
-    
-        <!-- Progress Bar -->
-        <div id="search-progress" class="progress-container">
-            <div class="progress-bar"></div>
-            <div class="progress-text-overlay">准备就绪</div>
-        </div>
 
-    <div class="source-selection" style="margin-top: 20px; text-align: left; max-width: 800px; margin-left: auto; margin-right: auto;">
-        <div style="margin-bottom: 10px; color: var(--secondary-color); font-size: 0.9rem;">选择数据源:</div>
-        <div id="source-list" style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
-            <!-- Sources will be populated by JS -->
+        <!-- 数据源选择 -->
+        <div class="source-selection">
+            <div style="margin-bottom: 10px; color: var(--secondary-color); font-size: 0.9rem;">选择数据源:</div>
+            <div id="source-list" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                <!-- 数据源将由 JS 填充 -->
+            </div>
         </div>
     </div>
-</div>
 
-<div id="results-section" style="display: none; margin-top: 30px;">
-    <div class="action-bar" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h3>采集结果预览 (<span id="result-count">0</span>)</h3>
-        <div>
-            <button id="btn-select-all" class="btn btn-sm" style="background-color: var(--secondary-color);">全选</button>
-            <button id="btn-save" class="btn btn-sm">批量保存到仓库</button>
-        </div>
+    <!-- 进度条 -->
+    <div id="search-progress" class="progress-container">
+        <div class="progress-bar"></div>
+        <div class="progress-text-overlay">准备就绪</div>
     </div>
-    
-    <div id="results-grid" class="results-grid">
-        <!-- Results injected here -->
+
+    <!-- 3. 结果列表区 -->
+    <div id="results-section" style="display: none;">
+        <!-- 按钮功能区 -->
+        <div class="section-toolbar">
+            <h3 style="margin: 0; font-size: 1.2rem;">采集结果预览 (<span id="result-count">0</span>)</h3>
+            <div style="margin-left: auto; display: flex; gap: 1rem;">
+                <button id="btn-select-all" class="btn btn-secondary btn-sm">全选</button>
+                <button id="btn-save" class="btn btn-sm">批量保存到仓库</button>
+            </div>
+        </div>
+        
+        <!-- 列表内容 -->
+        <div class="section-list" style="padding: 1rem;">
+            <div id="results-grid" class="results-grid">
+                <!-- 结果将在此处插入 -->
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // Toast Function
+    // Toast 提示函数
     function showToast(message, type = 'info') {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
@@ -127,7 +144,7 @@
         `;
         container.appendChild(toast);
 
-        // Auto remove after 3 seconds
+        // 3秒后自动移除
         setTimeout(() => {
             toast.style.animation = 'fadeOut 0.3s ease-out forwards';
             setTimeout(() => toast.remove(), 300);
@@ -139,7 +156,7 @@
         let currentResults = [];
         let allSources = {};
 
-        // Load dynamic sources
+        // 加载动态数据源
         $.get("{{ url_for('api_list_sources_full') }}", { per_page: 1000 }, function(response) {
             const container = $('#source-list');
             const data = response.items || [];
@@ -194,7 +211,7 @@
                 return;
             }
 
-            // Get selected sources
+            // 获取选中的数据源
             const selectedSources = [];
             $('input[name="source"]:checked').each(function() {
                 selectedSources.push($(this).val());
@@ -205,11 +222,11 @@
                 return;
             }
 
-            // Get Pagination Config
+            // 获取分页配置
             const maxPages = parseInt($('#max-pages').val()) || 1;
             const maxItems = parseInt($('#max-items').val()) || 100;
 
-            // Reset UI
+            // 重置 UI
             $('#results-section').hide();
             $('#results-grid').empty();
             currentResults = [];
@@ -218,7 +235,7 @@
             const originalText = btn.text();
             btn.prop('disabled', true).text('采集进行中...');
             
-            // Start Progress
+            // 启动进度条
             $('#search-progress').show();
             $('.progress-bar').css('width', '0%');
             $('.progress-text-overlay').text('正在初始化...');
@@ -251,41 +268,41 @@
         function pollStatus(taskId, btn, originalText, maxItems) {
             const interval = setInterval(() => {
                 $.get(`/search/status/${taskId}`, function(statusData) {
-                    // Update Progress
+                    // 更新进度
                     const currentCount = statusData.current_count || 0;
-                    const percentage = Math.min((currentCount / maxItems) * 100, 95); // Cap at 95 until done
+                    const percentage = Math.min((currentCount / maxItems) * 100, 95); // 上限 95%，直到完成
                     
                     $('.progress-bar').css('width', percentage + '%');
                     
-                    // Update text inside bar
+                    // 更新条内文字
                     let progressText = statusData.progress || `已采集 ${currentCount} 条`;
                     let textContent = `${progressText} (${Math.round(percentage)}%)`;
                     $('.progress-text-overlay').text(textContent);
 
-                    // --- INCREMENTAL RENDERING START ---
+                    // --- 增量渲染开始 ---
                     const newResults = statusData.result || [];
                     if (newResults.length > currentResults.length) {
                         const startIdx = currentResults.length;
                         const itemsToAdd = newResults.slice(startIdx);
                         
-                        // Render appended items
+                        // 渲染追加的项目
                         if ($('#results-section').is(':hidden')) {
                             $('#results-section').fadeIn();
                         }
                         
                         renderResults(itemsToAdd, true, startIdx);
-                        currentResults = newResults; // Update local state
+                        currentResults = newResults; // 更新本地状态
                         
                         $('#result-count').text(currentResults.length);
                         
-                        // Update Stats Display if exists
-                         if ($('#stats-display').length === 0) {
-                            $('#results-section .action-bar h3').after(`<span id="stats-display" style="margin-left: 20px; font-size: 0.9rem; color: var(--secondary-color);">计划: ${maxItems} / 实际: ${currentResults.length}</span>`);
+                        // 更新统计显示（如果存在）
+                        if ($('#stats-display').length === 0) {
+                            $('#results-section .section-toolbar h3').after(`<span id="stats-display" style="margin-left: 20px; font-size: 0.9rem; color: var(--secondary-color);">计划: ${maxItems} / 实际: ${currentResults.length}</span>`);
                         } else {
                             $('#stats-display').text(`计划: ${maxItems} / 实际: ${currentResults.length}`);
                         }
                     }
-                    // --- INCREMENTAL RENDERING END ---
+                    // --- 增量渲染结束 ---
 
                     if (statusData.status === 'completed') {
                         clearInterval(interval);
@@ -295,7 +312,7 @@
                         
                         btn.prop('disabled', false).text(originalText);
                         
-                        // Final check to ensure everything is rendered
+                        // 最终检查以确保所有内容都已渲染
                         if (statusData.result && statusData.result.length > currentResults.length) {
                              const startIdx = currentResults.length;
                              const itemsToAdd = statusData.result.slice(startIdx);
@@ -307,7 +324,7 @@
                              }
                         }
                         
-                        // Show Stats
+                        // 显示统计
                         showToast(`采集完成，计划 ${maxItems} 条，实际 ${currentResults.length} 条`, 'success');
                         
                         if (currentResults.length === 0) {
@@ -330,7 +347,7 @@
 
         function renderResults(results, append = false, startOffset = 0) {
             const grid = $('#results-grid');
-            if (!append) grid.empty(); // Clear previous
+            if (!append) grid.empty(); // 清除之前的
             results.forEach((item, index) => {
                 const globalIndex = startOffset + index;
                 const card = `
@@ -384,7 +401,7 @@
                 success: function(response) {
                     showToast(response.message, 'success');
                     
-                    // Handle successful removals
+                    // 处理成功的移除
                     if (response.successful_urls && response.successful_urls.length > 0) {
                         const successfulUrls = new Set(response.successful_urls);
                         let removedCount = 0;
@@ -400,11 +417,11 @@
                             }
                         });
                         
-                        // Update the visible count in the header
-                        // Note: We don't update currentResults array to keep indices valid for remaining items
-                        const currentVisible = $('.result-card').length; // This might count fading out items if run immediately
-                        // Better to rely on removedCount
-                        // But since fadeOut is async, we can just update the text based on current value
+                        // 更新头部可见计数
+                        // 注意：我们不更新 currentResults 数组，以保持剩余项目的索引有效
+                        const currentVisible = $('.result-card').length; // 如果立即运行，这可能会计算正在淡出的项目
+                        // 最好依靠 removedCount
+                        // 但由于 fadeOut 是异步的，我们可以只根据当前值更新文本
                         const countEl = $('#result-count');
                         const newCount = Math.max(0, parseInt(countEl.text()) - removedCount);
                         countEl.text(newCount);

@@ -16,7 +16,7 @@ from PyQt6.QtCore import QUrl, QObject, pyqtSlot, pyqtSignal, Qt, QThread
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtGui import QAction, QIcon
 
-# --- Bridge for JS Communication ---
+# --- JS 通信桥接 ---
 class Bridge(QObject):
     selection_received = pyqtSignal(str)
     
@@ -24,13 +24,13 @@ class Bridge(QObject):
     def receive_selection(self, data):
         self.selection_received.emit(data)
 
-# --- Network Interceptor ---
+# --- 网络拦截器 ---
 class ApiSniffer(QWebEngineUrlRequestInterceptor):
     def __init__(self, bridge):
         super().__init__()
-        # We use a signal from a QObject (bridge) to communicate back to UI thread safe
+        # 我们使用 QObject (bridge) 信号来安全地与 UI 线程通信
         self.bridge = bridge
-        # Simple rate limiter: max emits per second
+        # 简单的速率限制器：每秒最大发射次数
         self._current_sec = int(time.time())
         self._emit_count = 0
         self._max_per_sec = 30
@@ -40,10 +40,10 @@ class ApiSniffer(QWebEngineUrlRequestInterceptor):
             url = info.requestUrl().toString()
             method = info.requestMethod().data().decode()
             
-            # DEBUG LOGGING - FORCE PRINT
-            print(f"DEBUG: Intercepting {method} {url}")
+            # 调试日志 - 强制打印
+            print(f"DEBUG: 正在拦截 {method} {url}")
 
-            # 1. Extension Filter
+            # 1. 扩展名过滤
             ignored_exts = [
                 '.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', 
                 '.woff', '.woff2', '.ttf', '.eot', '.mp4', '.webm', '.mp3', '.wav',
@@ -51,43 +51,43 @@ class ApiSniffer(QWebEngineUrlRequestInterceptor):
             ]
             url_lower = url.lower()
             if any(ext in url_lower for ext in ignored_exts):
-                # print(f"DEBUG: Filtered by extension: {url}")
+                # print(f"DEBUG: 已过滤扩展名: {url}")
                 return
                 
-            # 2. Scheme Filter
+            # 2. Scheme 协议过滤
             if url.startswith('data:') or url.startswith('blob:') or url.startswith('file:'):
                 return
 
-            # 3. Resource Type Filter
-            # In PyQt6, resourceType() returns an enum.
-            # We need to be careful with comparison.
+            # 3. 资源类型过滤
+            # 在 PyQt6 中, resourceType() 返回一个枚举。
+            # 我们需要小心比较。
             try:
                 rtype = info.resourceType()
-                # print(f"DEBUG: Resource Type: {rtype} for {url}")
+                # print(f"DEBUG: 资源类型: {rtype} 对应 {url}")
                 
-                # Check if it is a static resource type
-                # enum values:
+                # 检查是否为静态资源类型
+                # 枚举值:
                 # 0: MainFrame, 1: SubFrame, 2: Stylesheet, 3: Script, 4: Image, 5: FontResource
                 # 6: SubResource, 7: Object, 8: Media, 9: Worker, 10: SharedWorker
                 # 11: Prefetch, 12: Favicon, 13: Xhr, 14: Ping, 15: ServiceWorker, 16: CspReport, 17: PluginResource
                 
-                # We can try to match by name if int conversion is tricky in python wrapper
+                # 如果 python 包装器中的 int 转换很棘手，我们可以尝试通过名称匹配
                 rtype_s = str(rtype).lower()
                 
-                # Allow scripts and mainframe so JSONP endpoints appear in list
-                # Block only obvious static types
+                # 允许脚本和主框架，以便 JSONP 端点出现在列表中
+                # 仅阻止明显的静态类型
                 if 'stylesheet' in rtype_s or 'image' in rtype_s or \
                    'font' in rtype_s or 'media' in rtype_s or 'favicon' in rtype_s:
                     return
             except Exception as e:
-                # print(f"DEBUG: Resource type check error: {e}")
+                # print(f"DEBUG: 资源类型检查错误: {e}")
                 pass
 
-            # Emit Signals
-            print(f"DEBUG: Emitting signal for {url}")
+            # 发送信号
+            print(f"DEBUG: 发送信号 {url}")
             self.bridge.network_request_received.emit(method, url)
             
-            # Capture Headers
+            # 捕获 Headers
             headers = {}
             try:
                 rh = info.requestHeaders()
@@ -98,7 +98,7 @@ class ApiSniffer(QWebEngineUrlRequestInterceptor):
                         headers[ks] = vs
                     except Exception:
                         pass
-                # print(f"DEBUG: Captured headers for {url}: {headers}")
+                # print(f"DEBUG: 已捕获 Headers {url}: {headers}")
             except Exception:
                 pass
                 
@@ -110,7 +110,7 @@ class ApiSniffer(QWebEngineUrlRequestInterceptor):
             self.bridge.network_request_detailed.emit(method, url, headers_json)
             
         except Exception as e:
-            print(f"Interceptor Error: {e}")
+            print(f"拦截器错误: {e}")
 
 class LogWorker(QThread):
     batch_ready = pyqtSignal(list)
@@ -147,7 +147,7 @@ class LogWorker(QThread):
     def stop(self):
         self.running = False
 
-# Update Bridge to handle network signals too
+# 更新 Bridge 以处理网络信号
 class EnhancedBridge(QObject):
     selection_received = pyqtSignal(str)
     network_request_received = pyqtSignal(str, str)
@@ -159,34 +159,34 @@ class EnhancedBridge(QObject):
 
     @pyqtSlot(str, str, str)
     def report_xhr(self, method, url, headers_json):
-        print(f"DEBUG: JS Proxy reported XHR: {method} {url}")
+        print(f"DEBUG: JS 代理报告 XHR: {method} {url}")
         self.network_request_detailed.emit(method, url, headers_json)
-        # Also emit a basic entry so it appears in Network Monitor list
+        # 同样发送一个基本条目以便它出现在网络监视器列表中
         self.network_request_received.emit(method, url)
-        # We DO NOT emit received to avoid duplicates in the list, unless we are sure ApiSniffer missed it.
-        # But since ApiSniffer filters catch XHR/Fetch, we assume it's there.
+        # 我们不发送 receive 信号以避免列表重复，除非我们确定 ApiSniffer 漏掉了它。
+        # 但既然 ApiSniffer 过滤器能捕获 XHR/Fetch，我们假设它在那里。
         # self.network_request_received.emit(method, url)
 
 class CustomWebEnginePage(QWebEnginePage):
     def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
-        print(f"JS Console: {message} [Line: {lineNumber}]")
+        print(f"JS 控制台: {message} [行: {lineNumber}]")
 
-# --- Main Window ---
+# --- 主窗口 ---
 class VisualSniffer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("GovInfo Visual Sniffer & Collector")
+        self.setWindowTitle("GovInfo 可视化嗅探与采集器")
         self.resize(1200, 800)
         
         self.is_closing = False
         self.inspector_enabled = False
         self.bridge = EnhancedBridge()
         self.bridge.selection_received.connect(self.on_selection)
-        # Use QueuedConnection explicitly for cross-thread signals safety
+        # 显式使用 QueuedConnection 以确保跨线程信号安全
         self.bridge.network_request_received.connect(self.log_network, Qt.ConnectionType.QueuedConnection)
         self.bridge.network_request_detailed.connect(self.on_network_detailed, Qt.ConnectionType.QueuedConnection)
         
-        # Default Enable Network Monitor
+        # 默认启用网络监视器
         self.network_monitor_enabled = True
         
         self.qwc_injected = False
@@ -194,7 +194,7 @@ class VisualSniffer(QMainWindow):
         self.recent_headers_by_url = {}
         self.last_selection = None
         
-        # LogWorker (Deprecated/Unused for now)
+        # LogWorker (目前已弃用/未使用)
         # self.log_worker = LogWorker()
         # self.log_worker.batch_ready.connect(self.add_log_batch, Qt.ConnectionType.QueuedConnection)
         # self.log_worker.start()
@@ -205,7 +205,7 @@ class VisualSniffer(QMainWindow):
 
     def closeEvent(self, event):
         self.is_closing = True
-        # Notify backend to refresh and optionally update rule headers
+        # 通知后端刷新并可选地更新规则头
         try:
             curr_url = ''
             try:
@@ -222,8 +222,8 @@ class VisualSniffer(QMainWindow):
             requests.post('http://127.0.0.1:5000/sniffer/closed', json=payload, timeout=3)
         except Exception:
             pass
-        # Detach interceptor to prevent signals after window closure
-        # Since we use defaultProfile, we must clean up
+        # 分离拦截器以防止窗口关闭后产生信号
+        # 由于我们使用默认 Profile，必须清理
         try:
             if hasattr(self, 'profile') and self.profile:
                 self.profile.setUrlRequestInterceptor(None)
@@ -258,88 +258,88 @@ class VisualSniffer(QMainWindow):
             pass
         
     def setup_ui(self):
-        # Main Layout
+        # 主布局
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Toolbar
+        # 工具栏
         toolbar = QToolBar()
         self.addToolBar(toolbar)
         
-        # Address Bar
+        # 地址栏
         self.url_bar = QLineEdit()
-        self.url_bar.setPlaceholderText("Enter URL here...")
+        self.url_bar.setPlaceholderText("在此输入 URL...")
         self.url_bar.returnPressed.connect(self.navigate_to_url)
         toolbar.addWidget(self.url_bar)
         
-        # Go Button
-        go_btn = QPushButton("Go")
+        # 跳转按钮
+        go_btn = QPushButton("前往")
         go_btn.clicked.connect(self.navigate_to_url)
         toolbar.addWidget(go_btn)
         
         toolbar.addSeparator()
         
-        # Inspector Toggle
-        self.inspect_btn = QPushButton("Start Inspector")
+        # 检查器开关
+        self.inspect_btn = QPushButton("启动检查器")
         self.inspect_btn.setCheckable(True)
         self.inspect_btn.toggled.connect(self.toggle_inspector)
         toolbar.addWidget(self.inspect_btn)
 
-        # Network Monitor Toggle
-        self.net_btn = QPushButton("Network On")
+        # 网络监视器开关
+        self.net_btn = QPushButton("网络开启")
         self.net_btn.setCheckable(True)
         self.net_btn.setChecked(True)
         self.net_btn.toggled.connect(self.toggle_network_monitor)
         toolbar.addWidget(self.net_btn)
         
-        # Splitter (Browser | Info Panel)
+        # 分割器 (浏览器 | 信息面板)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(splitter)
         
-        # Browser Container (Left Side)
+        # 浏览器容器 (左侧)
         self.browser_container = QWidget()
         browser_layout = QVBoxLayout(self.browser_container)
         browser_layout.setContentsMargins(0, 0, 0, 0)
         splitter.addWidget(self.browser_container)
         
-        # Right Side Container (Info Panel + Common Actions)
+        # 右侧容器 (信息面板 + 常用操作)
         right_side_widget = QWidget()
         right_side_layout = QVBoxLayout(right_side_widget)
         right_side_layout.setContentsMargins(0, 0, 0, 0)
         splitter.addWidget(right_side_widget)
         
-        # Info Panel (Tabs)
+        # 信息面板 (选项卡)
         self.info_panel = QTabWidget()
         right_side_layout.addWidget(self.info_panel)
         
-        # --- Tab 1: DOM Selector ---
+        # --- 选项卡 1: DOM 选择器 ---
         dom_widget = QWidget()
         dom_layout = QFormLayout(dom_widget)
         
-        self.tag_label = QLabel("None")
-        dom_layout.addRow("Selected Tag:", self.tag_label)
+        self.tag_label = QLabel("无")
+        dom_layout.addRow("选中标签:", self.tag_label)
         
         self.xpath_edit = QLineEdit()
-        dom_layout.addRow("Full XPath:", self.xpath_edit)
+        dom_layout.addRow("完整 XPath:", self.xpath_edit)
         
         self.smart_xpath_edit = QLineEdit()
-        dom_layout.addRow("Smart/Content XPath:", self.smart_xpath_edit)
+        dom_layout.addRow("智能/内容 XPath:", self.smart_xpath_edit)
         
         self.title_xpath_edit = QLineEdit()
-        self.title_xpath_edit.setPlaceholderText("Optional: XPath for Title")
-        dom_layout.addRow("Title XPath:", self.title_xpath_edit)
+        self.title_xpath_edit.setPlaceholderText("可选: 标题 XPath")
+        dom_layout.addRow("标题 XPath:", self.title_xpath_edit)
         
-        self.use_playwright_cb = QCheckBox("Use Playwright (Dynamic Rendering)")
+        self.use_playwright_cb = QCheckBox("使用 Playwright (动态渲染)")
         self.use_playwright_cb.setChecked(True)
         dom_layout.addRow("", self.use_playwright_cb)
 
         self.text_preview = QTextEdit()
         self.text_preview.setMaximumHeight(100)
-        dom_layout.addRow("Text Preview:", self.text_preview)
+        dom_layout.addRow("文本预览:", self.text_preview)
 
-        # DOM Action Buttons
+        # DOM 操作按钮
         self.set_title_btn = QPushButton("设为标题XPath")
         self.set_title_btn.clicked.connect(self.set_title_from_selection)
         self.set_content_btn = QPushButton("设为内容XPath")
@@ -356,30 +356,30 @@ class VisualSniffer(QMainWindow):
         btn_row_layout.addWidget(self.save_both_btn)
         dom_layout.addRow("关联操作:", btn_row)
         
-        self.info_panel.addTab(dom_widget, "DOM Inspector")
+        self.info_panel.addTab(dom_widget, "DOM 检查器")
         
-        # --- Tab 2: Network ---
+        # --- 选项卡 2: 网络 ---
         net_widget = QWidget()
         net_layout = QVBoxLayout(net_widget)
         
-        net_layout.addWidget(QLabel("Double click to select API as source:"))
+        net_layout.addWidget(QLabel("双击选择 API 作为源:"))
         self.net_list = QListWidget()
         self.net_list.itemDoubleClicked.connect(self.on_net_item_selected)
         net_layout.addWidget(self.net_list)
         
-        self.info_panel.addTab(net_widget, "Network Monitor")
+        self.info_panel.addTab(net_widget, "网络监视器")
         
-        # --- Common: Headers & Save ---
+        # --- 通用: Headers & 保存 ---
         common_widget = QWidget()
         common_layout = QVBoxLayout(common_widget)
         
-        common_layout.addWidget(QLabel("Request Headers (JSON):"))
+        common_layout.addWidget(QLabel("请求 Headers (JSON):"))
         self.headers_edit = QTextEdit()
         self.headers_edit.setMaximumHeight(80)
         self.headers_edit.setText('{"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}')
         common_layout.addWidget(self.headers_edit)
         
-        self.save_rule_btn = QPushButton("Save Rule to System")
+        self.save_rule_btn = QPushButton("保存规则到系统")
         self.save_rule_btn.setStyleSheet("background-color: #28a745; color: white; font-weight: bold; padding: 5px;")
         self.save_rule_btn.clicked.connect(self.save_rule)
         common_layout.addWidget(self.save_rule_btn)
@@ -396,7 +396,7 @@ class VisualSniffer(QMainWindow):
         
         right_side_layout.addWidget(common_widget)
         
-        # Set initial splitter sizes
+        # 设置初始分割大小
         splitter.setSizes([800, 400])
 
         
@@ -404,7 +404,7 @@ class VisualSniffer(QMainWindow):
         self.browser = QWebEngineView()
         self.browser_container.layout().addWidget(self.browser)
         
-        # Create custom profile and page to isolate interceptor
+        # 创建自定义配置文件和页面以隔离拦截器
         self.profile = QWebEngineProfile("VisualSnifferProfile", self)
         self.interceptor = ApiSniffer(self.bridge)
         self.profile.setUrlRequestInterceptor(self.interceptor)
@@ -412,7 +412,7 @@ class VisualSniffer(QMainWindow):
         self.page = CustomWebEnginePage(self.profile, self)
         self.browser.setPage(self.page)
         
-        # Setup WebChannel on custom page
+        # 在自定义页面上设置 WebChannel
         self.channel = QWebChannel()
         self.channel.registerObject("bridge", self.bridge)
         self.page.setWebChannel(self.channel)
@@ -445,11 +445,11 @@ class VisualSniffer(QMainWindow):
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         self.profile.scripts().insert(script)
-        # Execute immediately for current page
+        # 对当前页面立即执行
         self.browser.page().runJavaScript(js_code)
 
     def inject_inspector(self):
-        # Load local inspector.js
+        # 加载本地 inspector.js
         try:
             with open('sniffer_tool/inspector.js', 'r', encoding='utf-8') as f:
                 js_content = f.read()
@@ -459,10 +459,10 @@ class VisualSniffer(QMainWindow):
             script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
             script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
             self.profile.scripts().insert(script)
-            # Execute immediately for current page
+            # 对当前页面立即执行
             self.browser.page().runJavaScript(js_content)
         except Exception as e:
-            print(f"Failed to load inspector.js: {e}")
+            print(f"加载 inspector.js 失败: {e}")
 
     def inject_network_proxy(self):
         js_code = '''
@@ -478,7 +478,7 @@ class VisualSniffer(QMainWindow):
                   new QWebChannel(qt.webChannelTransport, function(channel) {
                      var bridge = channel.objects.bridge;
                      
-                     // XHR Proxy
+                     // XHR 代理
                      var originalOpen = XMLHttpRequest.prototype.open;
                      var originalSend = XMLHttpRequest.prototype.send;
                      var originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
@@ -508,7 +508,7 @@ class VisualSniffer(QMainWindow):
                         return originalSend.apply(this, arguments);
                      };
 
-                     // Fetch Proxy
+                     // Fetch 代理
                      var originalFetch = window.fetch;
                      window.fetch = function(input, init) {
                         var method = 'GET';
@@ -557,7 +557,7 @@ class VisualSniffer(QMainWindow):
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         self.profile.scripts().insert(script)
-        # Execute immediately for current page
+        # 对当前页面立即执行
         self.browser.page().runJavaScript(js_code)
 
     def ensure_network_interceptor_injected(self):
@@ -577,16 +577,16 @@ class VisualSniffer(QMainWindow):
     def toggle_inspector(self, checked):
         self.inspector_enabled = checked
         if checked:
-            self.inspect_btn.setText("Stop Inspector")
+            self.inspect_btn.setText("停止检查器")
             self.ensure_inspector_injected()
             self.browser.page().runJavaScript("window.inspectorEnabled = true;")
         else:
-            self.inspect_btn.setText("Start Inspector")
+            self.inspect_btn.setText("启动检查器")
             self.browser.page().runJavaScript("window.inspectorEnabled = false;")
 
     def toggle_network_monitor(self, checked):
         self.network_monitor_enabled = checked
-        self.net_btn.setText("Network On" if checked else "Network Off")
+        self.net_btn.setText("网络开启" if checked else "网络关闭")
         if checked:
             self.ensure_network_interceptor_injected()
 
@@ -604,43 +604,43 @@ class VisualSniffer(QMainWindow):
         try:
             data = json.loads(data_str)
             self.last_selection = data
-            self.tag_label.setText(f"{data.get('tag')} (Text len: {len(data.get('text', ''))})")
+            self.tag_label.setText(f"{data.get('tag')} (文本长度: {len(data.get('text', ''))})")
             self.xpath_edit.setText(data.get('xpath'))
             self.smart_xpath_edit.setText(data.get('smart_xpath'))
             self.text_preview.setText(data.get('text'))
             
-            # Auto-fill Title XPath if it looks like a title
+            # 自动填充标题 XPath 如果看起来像标题
             if data.get('tag') in ['H1', 'TITLE']:
                 self.title_xpath_edit.setText(data.get('smart_xpath'))
                 
         except RuntimeError:
             pass
         except Exception as e:
-            print(f"Error parsing selection: {e}")
+            print(f"选择解析错误: {e}")
             
     def log_network(self, method, url):
         # print(f"DEBUG: log_network called for {url}")
         if self.is_closing:
             return
         if not self.network_monitor_enabled:
-            # print("DEBUG: Network monitor disabled, ignoring")
+            # print("DEBUG: 网络监视器已禁用，忽略")
             return
             
-        # Direct UI Update (Bypass LogWorker to fix missing items)
+        # 直接 UI 更新 (绕过 LogWorker 以修复丢失的项目)
         try:
             item_text = f"[{method}] {url}"
-            # Ensure we are on main thread (we are, via QueuedConnection)
+            # 确保我们在主线程上 (我们是，通过 QueuedConnection)
             if hasattr(self, 'net_list'):
                 self.net_list.addItem(item_text)
-                # Auto-scroll if at bottom
+                # 如果在底部则自动滚动
                 if self.net_list.count() > 0:
                     self.net_list.scrollToBottom()
                 
-                # Limit size to prevent memory issues
+                # 限制大小以防止内存问题
                 while self.net_list.count() > 1000:
                     self.net_list.takeItem(0)
         except Exception as e:
-            print(f"UI Update Error: {e}")
+            print(f"UI 更新错误: {e}")
 
     def add_log_batch(self, batch):
         if self.is_closing or not batch:
@@ -662,8 +662,8 @@ class VisualSniffer(QMainWindow):
             pass
         
     def on_net_item_selected(self, item):
-        # User double clicked an API
-        # Automatically fill headers
+        # 用户双击 API
+        # 自动填充 Headers
         self.fill_headers_from_selected_request()
 
     def set_title_from_selection(self):
@@ -691,7 +691,7 @@ class VisualSniffer(QMainWindow):
             return
         try:
             # print(f"DEBUG: Detailed headers received for {url}")
-            # Merge headers logic
+            # 合并 Headers 逻辑
             old_json = self.recent_headers_by_url.get(url, '{}')
             
             if headers_json == '{}':
@@ -701,14 +701,14 @@ class VisualSniffer(QMainWindow):
                 self.recent_headers_by_url[url] = headers_json
                 return
                 
-            # Try to merge
+            # 尝试合并
             try:
                 new_h = json.loads(headers_json)
                 old_h = json.loads(old_json)
                 old_h.update(new_h)
                 self.recent_headers_by_url[url] = json.dumps(old_h)
             except:
-                # Fallback
+                # 回退
                 if len(headers_json) > len(old_json):
                     self.recent_headers_by_url[url] = headers_json
         except Exception:
@@ -723,14 +723,14 @@ class VisualSniffer(QMainWindow):
                 if '] ' in text:
                     url = text.split('] ', 1)[1]
             
-            # DEBUG LOGGING
-            print(f"DEBUG: Selecting URL: {url}")
+            # 调试日志
+            print(f"DEBUG: 正在选择 URL: {url}")
             keys = list(self.recent_headers_by_url.keys())
-            print(f"DEBUG: Available URLs in map: {len(keys)}")
+            print(f"DEBUG: Map 中可用的 URLs: {len(keys)}")
             
             hj = self.recent_headers_by_url.get(url, '') if url else ''
             
-            # If headers are found and not empty JSON
+            # 如果找到 Headers 且不是空 JSON
             if hj and hj != '{}':
                 self.headers_edit.setText(hj)
                 try:
@@ -741,7 +741,7 @@ class VisualSniffer(QMainWindow):
                 QMessageBox.information(self, "提示", f"已填充选中请求的Headers\nURL: {url}")
                 return
             
-            # Fallback: try same-origin headers
+            # 回退：尝试同源 Headers
             try:
                 parsed = urlparse(url) if url else None
                 origin_host = parsed.netloc if parsed else ''
@@ -752,7 +752,7 @@ class VisualSniffer(QMainWindow):
                             if pk.netloc == origin_host:
                                 alt = self.recent_headers_by_url.get(k, '')
                                 if alt and alt != '{}':
-                                    print(f"DEBUG: Using same-origin headers from {k}")
+                                    print(f"DEBUG: 使用来自 {k} 的同源 Headers")
                                     self.headers_edit.setText(alt)
                                     try:
                                         if url:
@@ -766,7 +766,7 @@ class VisualSniffer(QMainWindow):
             except Exception:
                 pass
 
-            # Final fallback: build best-effort headers from page context
+            # 最终回退：从页面上下文构建尽力而为的 Headers
             self.collect_best_effort_headers(url)
             QMessageBox.information(self, "提示", "已填充同源可用请求头（包含 User-Agent/Cookie/Referer 等）。")
         except Exception:
@@ -872,8 +872,8 @@ class VisualSniffer(QMainWindow):
         current_tab_idx = self.info_panel.currentIndex()
         url_val = self.url_bar.text()
         
-        # Get Rule Name
-        rule_name, ok = QInputDialog.getText(self, "Save Rule", "Enter Rule Name:")
+        # 获取规则名称
+        rule_name, ok = QInputDialog.getText(self, "保存规则", "输入规则名称:")
         if not ok or not rule_name:
             return
 
@@ -881,21 +881,21 @@ class VisualSniffer(QMainWindow):
         title_xpath = self.title_xpath_edit.text()
         request_headers = self.headers_edit.toPlainText()
         
-        # Logic: Check which tab is active
-        if current_tab_idx == 1: # Network Tab
+        # 逻辑：检查哪个选项卡处于活动状态
+        if current_tab_idx == 1: # 网络选项卡
             item = self.net_list.currentItem()
             if not item:
-                QMessageBox.warning(self, "Error", "Please select an API request from the list first.")
+                QMessageBox.warning(self, "错误", "请先从列表中选择一个 API 请求。")
                 return
             api_url = item.text().split('] ', 1)[1]
             content_xpath = f"API:{api_url}"
-        else: # DOM Tab
+        else: # DOM 选项卡
             xpath = self.smart_xpath_edit.text()
             if not xpath:
-                QMessageBox.warning(self, "Error", "No XPath selected")
+                QMessageBox.warning(self, "错误", "未选择 XPath")
                 return
             
-            # Check if Playwright mode is requested
+            # 检查是否请求了 Playwright 模式
             if self.use_playwright_cb.isChecked():
                 content_xpath = f"DOM:{xpath}"
             else:
@@ -910,32 +910,32 @@ class VisualSniffer(QMainWindow):
         }
         
         try:
-            # Assuming Flask runs on default port 5000
+            # 假设 Flask 运行在默认端口 5000
             api_endpoint = "http://127.0.0.1:5000/rule/save"
             
-            # Add internal token for auth bypass
+            # 添加内部令牌以绕过认证
             headers = {"X-Internal-Token": "sniffer-secret-123"}
             response = requests.post(api_endpoint, json=payload, headers=headers, timeout=5)
             
             if response.status_code == 200:
-                QMessageBox.information(self, "Success", f"Rule '{rule_name}' saved successfully!")
+                QMessageBox.information(self, "成功", f"规则 '{rule_name}' 保存成功！")
             elif response.status_code == 401:
-                 QMessageBox.warning(self, "Auth Error", "Authentication required.\nFor this prototype tool, please ensure the backend '/rule/save' endpoint allows access or you implement API Token auth.")
+                 QMessageBox.warning(self, "认证错误", "需要认证。\n对于此原型工具，请确保后端 '/rule/save' 端点允许访问或实施 API Token 认证。")
             else:
                 try:
                     err_msg = response.json().get('error', response.text)
                 except:
                     err_msg = response.text
-                QMessageBox.critical(self, "Error", f"Failed to save rule: {err_msg}")
+                QMessageBox.critical(self, "错误", f"保存规则失败: {err_msg}")
                 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Connection error: {e}")
+            QMessageBox.critical(self, "错误", f"连接错误: {e}")
 
 if __name__ == '__main__':
-    # Minimal, compatible flags for Windows/Remote Desktop (NO GPU)
+    # 针对 Windows/远程桌面 (无 GPU) 的最小化兼容标志
     os.environ.setdefault('QTWEBENGINE_DISABLE_SANDBOX', '1')
     os.environ.setdefault('QT_OPENGL', 'software')
-    # Append robust NO-GPU flags
+    # 追加健壮的 NO-GPU 标志
     existing_flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')
     nogpu_flags = [
         '--disable-gpu',
@@ -943,7 +943,7 @@ if __name__ == '__main__':
         '--disable-features=UseSkiaRenderer,CanvasOopRasterization,Accelerated2dCanvas,ZeroCopy,VaapiVideoDecoder',
         '--in-process-gpu'
     ]
-    # Merge flags without duplicates
+    # 合并标志而不重复
     merged = existing_flags.split() + [f for f in nogpu_flags if f not in existing_flags.split()]
     os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = ' '.join(merged).strip()
     try:
