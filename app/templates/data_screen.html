@@ -111,42 +111,91 @@
             const option = {
                 tooltip: {
                     trigger: 'item',
-                    formatter: '{b}: {c}'
+                    backgroundColor: 'rgba(0,0,0,0.7)',
+                    borderColor: '#00f2ff',
+                    textStyle: { color: '#fff' },
+                    formatter: function(params) {
+                        let val = params.value;
+                        if (Array.isArray(val)) {
+                            val = val[2]; // scatter data: [lng, lat, value]
+                        }
+                        return params.name + '<br/>热度值: ' + (val || 0);
+                    }
                 },
                 visualMap: {
                     min: 0,
-                    max: 100,
+                    max: 100, // 动态调整
                     left: 'left',
                     top: 'bottom',
                     text: ['高', '低'],
                     calculable: true,
                     inRange: {
-                        color: ['#003366', '#006699', '#4cabce', '#e5323e']
+                        // 回归经典的深蓝到青蓝渐变，保持背景的沉稳
+                        color: ['#0d47a1', '#1976d2', '#42a5f5']
                     },
-                    textStyle: { color: '#fff' }
+                    textStyle: { color: '#fff' },
+                    show: true
                 },
                 geo: {
                     map: 'china',
                     roam: true,
+                    zoom: 1.2,
                     label: {
                         emphasis: { show: false }
                     },
                     itemStyle: {
                         normal: {
-                            areaColor: '#323c48',
-                            borderColor: '#111'
+                            areaColor: '#0a1a2e',
+                            borderColor: '#40c4ff', // 亮青色边框，增加地图轮廓清晰度
+                            borderWidth: 1,
+                            shadowColor: 'rgba(64, 196, 255, 0.5)',
+                            shadowBlur: 5
                         },
                         emphasis: {
-                            areaColor: '#2a333d'
+                            areaColor: '#1e88e5', // 高亮时使用中蓝色，不抢光点风头
+                            shadowBlur: 20,
+                            borderWidth: 2
                         }
                     }
                 },
                 series: [
                     {
-                        name: '热度',
-                        type: 'heatmap',
-                        coordinateSystem: 'geo',
+                        name: '省份热度',
+                        type: 'map',
+                        geoIndex: 0,
                         data: [] // 待填充
+                    },
+                    {
+                        name: '城市热度',
+                        type: 'effectScatter',
+                        coordinateSystem: 'geo',
+                        data: [], // 待填充
+                        symbolSize: function (val) {
+                            return Math.max(5, Math.min(val[2] * 2, 20));
+                        },
+                        showEffectOn: 'render',
+                        rippleEffect: {
+                            brushType: 'stroke',
+                            scale: 3,
+                            period: 4
+                        },
+                        hoverAnimation: true,
+                        label: {
+                            formatter: '{b}',
+                            position: 'right',
+                            show: true,
+                            color: '#ffffff', // 纯白文字
+                            fontSize: 13,     // 稍微加大字号
+                            fontWeight: 'bold', // 加粗
+                            textBorderColor: 'rgba(0, 0, 0, 0.8)', // 黑色半透明描边，确保在任何背景下都清晰可见
+                            textBorderWidth: 3
+                        },
+                        itemStyle: {
+                            color: '#ffff00', // 纯亮黄色，在蓝色背景下对比度最高且最友好
+                            shadowBlur: 10,
+                            shadowColor: '#ffff00'
+                        },
+                        zlevel: 1
                     }
                 ]
             };
@@ -158,33 +207,54 @@
         function loadStats() {
             $.get('/api/screen/stats', function(data) {
                 // 更新数字
-                $('#stat-total').text(data.total_count);
-                $('#stat-today').text(data.today_count);
-                $('#stat-risk').text(data.risk_count);
+                animateNumber('stat-total', data.total_count);
+                animateNumber('stat-today', data.today_count);
+                animateNumber('stat-risk', data.risk_count);
 
-                // 更新分类图表 (饼图)
+                // 更新分类图表 (玫瑰图)
                 const classOption = {
-                    tooltip: { trigger: 'item' },
-                    legend: { top: '5%', left: 'center', textStyle: { color: '#fff' } },
+                    tooltip: { trigger: 'item', backgroundColor: 'rgba(0,0,0,0.7)', textStyle: { color: '#fff' } },
+                    legend: { top: 'bottom', textStyle: { color: '#fff' } },
                     series: [{
                         name: '数据分类',
                         type: 'pie',
-                        radius: ['40%', '70%'],
-                        avoidLabelOverlap: false,
+                        radius: ['30%', '70%'],
+                        center: ['50%', '50%'],
+                        roseType: 'radius', // 玫瑰图模式
                         itemStyle: {
-                            borderRadius: 10,
-                            borderColor: '#fff',
-                            borderWidth: 2
+                            borderRadius: 5
                         },
-                        label: { show: false, position: 'center' },
+                        label: { show: true, color: '#fff' },
                         emphasis: {
-                            label: { show: true, fontSize: '20', fontWeight: 'bold', color: '#fff' }
+                            label: { show: true, fontSize: '16', fontWeight: 'bold' }
                         },
                         data: data.classification
                     }]
                 };
                 chartClass.setOption(classOption);
             });
+        }
+        
+        // 数字滚动动画
+        function animateNumber(id, target) {
+            const el = document.getElementById(id);
+            const start = parseInt(el.innerText) || 0;
+            const diff = target - start;
+            const duration = 1000;
+            const steps = 20;
+            const stepValue = diff / steps;
+            let current = start;
+            let step = 0;
+            
+            const timer = setInterval(() => {
+                step++;
+                current += stepValue;
+                el.innerText = Math.round(current);
+                if (step >= steps) {
+                    el.innerText = target;
+                    clearInterval(timer);
+                }
+            }, duration / steps);
         }
 
         function loadRiskData() {
@@ -259,65 +329,55 @@
             });
         }
         
-        // 城市坐标 (简化版，仅包含主要城市)
+        // 城市坐标 (包含扩充的主要城市)
         const cityCoords = {
-            '北京': [116.407526, 39.90403],
-            '上海': [121.473701, 31.230416],
-            '广州': [113.264434, 23.129162],
-            '深圳': [114.085947, 22.547],
-            '成都': [104.066541, 30.572269],
-            '杭州': [120.15507, 30.274084],
-            '武汉': [114.305393, 30.593099],
-            '西安': [108.93977, 34.341574],
-            '重庆': [106.551556, 29.563009],
-            '南京': [118.796877, 32.060255],
-            '天津': [117.200983, 39.084158],
-            '郑州': [113.625368, 34.7466],
-            '长沙': [112.938814, 28.228209],
-            '沈阳': [123.431474, 41.805698],
-            '青岛': [120.38263, 36.067108],
-            '济南': [117.1205, 36.6511],
-            '大连': [121.6147, 38.9140],
-            '厦门': [118.0894, 24.4798],
-            '宁波': [121.5503, 29.8743],
-            '哈尔滨': [126.5350, 45.8038],
-            '长春': [125.3235, 43.8170],
-            '石家庄': [114.5149, 38.0428],
-            '合肥': [117.2272, 31.8206],
-            '福州': [119.2965, 26.0745],
-            '南昌': [115.8546, 28.6830],
-            '昆明': [102.8329, 24.8801],
-            '贵阳': [106.6302, 26.6477],
-            '兰州': [103.8343, 36.0611],
-            '南宁': [108.3661, 22.8172],
-            '海口': [110.1983, 20.0440],
-            '太原': [112.5489, 37.8706],
-            '呼和浩特': [111.7492, 40.8425],
-            '乌鲁木齐': [87.6168, 43.8256],
-            '拉萨': [91.1409, 29.6456],
-            '西宁': [101.7782, 36.6232],
-            '银川': [106.2309, 38.4872]
+            '北京': [116.407526, 39.90403], '上海': [121.473701, 31.230416], '广州': [113.264434, 23.129162], '深圳': [114.085947, 22.547],
+            '成都': [104.066541, 30.572269], '杭州': [120.15507, 30.274084], '武汉': [114.305393, 30.593099], '西安': [108.93977, 34.341574],
+            '重庆': [106.551556, 29.563009], '南京': [118.796877, 32.060255], '天津': [117.200983, 39.084158], '郑州': [113.625368, 34.7466],
+            '长沙': [112.938814, 28.228209], '沈阳': [123.431474, 41.805698], '青岛': [120.38263, 36.067108], '济南': [117.1205, 36.6511],
+            '大连': [121.6147, 38.9140], '厦门': [118.0894, 24.4798], '宁波': [121.5503, 29.8743], '哈尔滨': [126.5350, 45.8038],
+            '长春': [125.3235, 43.8170], '石家庄': [114.5149, 38.0428], '合肥': [117.2272, 31.8206], '福州': [119.2965, 26.0745],
+            '南昌': [115.8546, 28.6830], '昆明': [102.8329, 24.8801], '贵阳': [106.6302, 26.6477], '兰州': [103.8343, 36.0611],
+            '南宁': [108.3661, 22.8172], '海口': [110.1983, 20.0440], '太原': [112.5489, 37.8706], '呼和浩特': [111.7492, 40.8425],
+            '乌鲁木齐': [87.6168, 43.8256], '拉萨': [91.1409, 29.6456], '西宁': [101.7782, 36.6232], '银川': [106.2309, 38.4872],
+            // 新增城市坐标
+            '苏州': [120.5853, 31.2989], '无锡': [120.3119, 31.4912], '佛山': [113.1214, 23.0215], '东莞': [113.7518, 23.0207],
+            '泉州': [118.3711, 24.8754], '烟台': [121.4479, 37.4638], '南通': [120.8943, 31.9802], '常州': [119.9739, 31.8107],
+            '徐州': [117.2841, 34.2058], '唐山': [118.1802, 39.6309], '温州': [120.6994, 27.9943], '绍兴': [120.5802, 30.0327],
+            '嘉兴': [120.7555, 30.7461], '台州': [121.4207, 28.6564], '金华': [119.6474, 29.0791], '珠海': [113.5767, 22.2707],
+            '中山': [113.3925, 22.5170], '惠州': [114.4162, 23.1115], '洛阳': [112.4540, 34.6197]
         };
 
         function loadMapData() {
             $.get('/api/screen/heatmap', function(data) {
-                // 准备热力图数据
-                // ECharts 热力图需要 [lng, lat, value] 格式
-                const heatData = [];
-                data.forEach(item => {
+                // 准备散点数据
+                const scatterData = [];
+                data.city_data.forEach(item => {
                     if (cityCoords[item.name]) {
-                        heatData.push(cityCoords[item.name].concat(item.value));
+                        scatterData.push({
+                            name: item.name,
+                            value: cityCoords[item.name].concat(item.value)
+                        });
                     }
                 });
                 
+                // 动态计算 VisualMap 最大值以适应数据变化
+                const maxProvVal = Math.max(...data.province_data.map(p => p.value), 10);
+                
                 chartMap.setOption({
-                    series: [{
-                        type: 'heatmap',
-                        coordinateSystem: 'geo',
-                        data: heatData,
-                        pointSize: 10,
-                        blurSize: 15
-                    }]
+                    visualMap: {
+                        max: maxProvVal
+                    },
+                    series: [
+                        {
+                            name: '省份热度',
+                            data: data.province_data
+                        },
+                        {
+                            name: '城市热度',
+                            data: scatterData
+                        }
+                    ]
                 });
             });
         }

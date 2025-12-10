@@ -5,10 +5,15 @@
     <!-- Sidebar: Model Selection & History -->
     <!-- 侧边栏：模型选择与历史记录 -->
     <div class="analysis-sidebar" style="width: 260px; display: flex; flex-direction: column; gap: 1rem; border-right: 1px solid var(--border-color); padding-right: 1rem;">
-        <div class="sidebar-header">
-            <h3>AI分析报告</h3>
-            <p class="text-muted" style="font-size: 0.85rem;">基于深采数据智能分析</p>
-            <button class="btn btn-sm btn-outline-primary w-100 mt-2" onclick="createNewChat()" style="border: 1px solid var(--accent-color); color: var(--accent-color); background: transparent; padding: 0.4rem; border-radius: 4px; cursor: pointer;">
+        <div class="sidebar-header" style="padding-bottom: 1.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color);">
+            <div style="display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.5rem;">
+                <div style="width: 32px; height: 32px; background: rgba(var(--accent-rgb), 0.1); color: var(--accent-color); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <h3 style="margin: 0; font-size: 1.2rem; font-weight: 600;">AI分析报告</h3>
+            </div>
+            <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 1rem; padding-left: 2px;">基于深采数据智能分析</p>
+            <button class="btn btn-sm btn-primary w-100" onclick="createNewChat()" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: var(--accent-color); color: white; border: none; padding: 0.5rem; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(var(--accent-rgb), 0.2); transition: all 0.2s;">
                 <i class="fas fa-plus"></i> 新建对话
             </button>
         </div>
@@ -64,14 +69,20 @@
 
         <!-- Input Area -->
         <!-- 输入区域 -->
-        <div class="input-area" style="padding: 1.5rem; background: var(--bg-color);">
-            <div class="input-group" style="position: relative;">
-                <textarea id="queryInput" class="form-control" rows="3" placeholder="输入你的分析需求，例如：统计最近一周的数据采集情况..." style="resize: none; padding-right: 50px;"></textarea>
-                <button id="sendBtn" class="btn-send" onclick="sendQuery()">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
+        <div class="input-area" style="padding: 1.5rem; background: var(--bg-color); border-top: 1px solid var(--border-color);">
+            <div class="input-wrapper" style="position: relative; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 0.5rem; transition: all 0.3s ease; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+                <textarea id="queryInput" class="form-control" rows="3" placeholder="输入你的分析需求，例如：统计最近一周的数据采集情况..." style="border: none; background: transparent; padding: 0.8rem; padding-right: 90px; resize: none; box-shadow: none; width: 100%; outline: none;"></textarea>
+                
+                <div style="position: absolute; bottom: 10px; right: 10px; display: flex; gap: 0.5rem;">
+                    <button id="stopBtn" class="btn-action btn-stop" onclick="stopGeneration()" style="display: none;" title="停止生成">
+                        <i class="fas fa-stop"></i>
+                    </button>
+                    <button id="sendBtn" class="btn-action btn-send" onclick="sendQuery()" title="发送">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
             </div>
-            <div class="text-muted" style="font-size: 0.8rem; margin-top: 0.5rem; text-align: right;">
+            <div class="text-muted" style="font-size: 0.75rem; margin-top: 0.8rem; text-align: center; opacity: 0.7;">
                 按 Enter 发送，Shift + Enter 换行
             </div>
         </div>
@@ -146,28 +157,47 @@
         border-color: rgba(255,255,255,0.2);
     }
 
-    .btn-send {
-        position: absolute;
-        bottom: 10px;
-        right: 10px;
-        background: var(--accent-color);
-        color: white;
-        border: none;
+    .input-wrapper:focus-within {
+        border-color: var(--accent-color) !important;
+        box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.15) !important;
+    }
+
+    .btn-action {
         width: 36px;
         height: 36px;
-        border-radius: 50%;
-        cursor: pointer;
+        border-radius: 8px;
+        border: none;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: transform 0.2s;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn-send {
+        background: var(--accent-color);
+        color: white;
     }
     .btn-send:hover {
-        transform: scale(1.1);
+        filter: brightness(1.1);
+        transform: translateY(-2px);
     }
     .btn-send:disabled {
-        background: #ccc;
+        background: #e9ecef;
+        color: #adb5bd;
         cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-stop {
+        background: rgba(220, 53, 69, 0.1);
+        color: #dc3545;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+    .btn-stop:hover {
+        background: #dc3545;
+        color: white;
+        transform: translateY(-2px);
     }
 
     .spinner-small {
@@ -217,11 +247,13 @@
     const chatWindow = document.getElementById('chatWindow');
     const queryInput = document.getElementById('queryInput');
     const sendBtn = document.getElementById('sendBtn');
+    const stopBtn = document.getElementById('stopBtn');
     const statusDiv = document.getElementById('workflowStatus');
     const statusText = document.getElementById('statusText');
     
     let isProcessing = false;
     let currentConversationId = null;
+    let currentEventSource = null;
 
     // Handle Enter key
     // 处理回车键
@@ -431,6 +463,35 @@
         stepElement.classList.remove('active');
     }
 
+    function stopGeneration() {
+        if (currentEventSource) {
+            currentEventSource.close();
+            currentEventSource = null;
+        }
+        
+        isProcessing = false;
+        queryInput.disabled = false;
+        queryInput.focus();
+        
+        sendBtn.style.display = 'flex';
+        stopBtn.style.display = 'none';
+        
+        statusDiv.style.display = 'none';
+        
+        // Append system message
+        const div = document.createElement('div');
+        div.className = 'message ai';
+        div.innerHTML = `
+            <div class="avatar" style="background: #dc3545;">!</div>
+            <div class="content-wrapper">
+                <div class="bubble" style="font-size: 0.85rem; color: #dc3545; background: rgba(220, 53, 69, 0.05);">
+                    已停止生成
+                </div>
+            </div>`;
+        chatWindow.appendChild(div);
+        scrollToBottom();
+    }
+
     async function sendQuery() {
         const text = queryInput.value.trim();
         const modelId = document.getElementById('modelSelect').value;
@@ -468,7 +529,11 @@
         // UI 更新
         queryInput.value = '';
         queryInput.disabled = true;
-        sendBtn.disabled = true;
+        
+        // Toggle buttons
+        sendBtn.style.display = 'none';
+        stopBtn.style.display = 'flex';
+        
         isProcessing = true;
         
         appendMessage('user', text);
@@ -485,6 +550,7 @@
         // SSE Connection
         // SSE 连接
         const eventSource = new EventSource(`/ai_analysis/chat_stream?model_id=${modelId}&message=${encodeURIComponent(text)}&conversation_id=${currentConversationId}`);
+        currentEventSource = eventSource;
         
         let fullContent = '';
         let currentStepElement = null;
@@ -585,9 +651,17 @@
 
         function closeStream() {
             eventSource.close();
+            if (currentEventSource === eventSource) {
+                currentEventSource = null;
+            }
+
             isProcessing = false;
             queryInput.disabled = false;
-            sendBtn.disabled = false;
+            
+            // Toggle buttons back
+            sendBtn.style.display = 'flex';
+            stopBtn.style.display = 'none';
+            
             statusDiv.style.display = 'none';
             queryInput.focus();
             

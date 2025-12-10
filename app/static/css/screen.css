@@ -15,8 +15,21 @@ body.screen-mode {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     margin: 0;
     overflow: hidden;
-    background-image: 
-        radial-gradient(circle at 50% 50%, rgba(13, 27, 46, 0.8) 0%, rgba(11, 17, 32, 1) 100%);
+    position: relative; /* 确保 z-index 上下文正确 */
+}
+
+/* 使用伪元素实现背景模糊，不影响内容 */
+body.screen-mode::before {
+    content: "";
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    width: calc(100% + 20px);
+    height: calc(100% + 20px);
+    background: url('../images/dsbg.jpg') no-repeat center center;
+    background-size: cover;
+    filter: blur(8px); /* 高斯模糊效果 */
+    z-index: -1;
 }
 
 .screen-container {
